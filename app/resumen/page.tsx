@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { StatsCard } from "@/components/stats-card"
 import { CompliancePieChart } from "@/components/compliance-pie-chart"
 import { MonthlyTrendChart } from "@/components/monthly-trend-chart"
+import { AnnualCalendarTable } from "@/components/annual-calendar-table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
@@ -253,6 +254,9 @@ export default function ResumenPage() {
                 />
                 <MonthlyTrendChart data={stats.porMes} />
               </div>
+
+              {/* Calendario Anual de Cumplimiento */}
+              <AnnualCalendarTable auditFiles={auditFiles} />
             </TabsContent>
 
             {/* TAB: Por Operación */}
