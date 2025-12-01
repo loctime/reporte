@@ -8,6 +8,12 @@ export interface ColumnConfig {
   headerRowIndex: number
   cumplimientoCol: number | null
   cumplimientoRow: number | null
+  // Celdas de estadísticas del Excel (fila y columna, índices base 0)
+  totalItemsCell: { row: number; col: number } | null
+  cumpleCell: { row: number; col: number } | null
+  cumpleParcialCell: { row: number; col: number } | null
+  noCumpleCell: { row: number; col: number } | null
+  noAplicaCell: { row: number; col: number } | null
 }
 
 const CONFIG_STORAGE_KEY = "excel-column-config"

@@ -33,12 +33,15 @@ export function AuditProvider({ children }: { children: ReactNode }) {
 
   const getStats = (): AuditStats => {
     const allItems = getAllItems()
-    const totalItems = allItems.length
+    
+    // Sumar los totalItems de cada auditoría (que vienen del Excel)
+    const totalItems = auditFiles.reduce((sum, file) => sum + file.totalItems, 0)
 
-    const cumple = allItems.filter((i) => i.estado === "Cumple").length
-    const cumpleParcial = allItems.filter((i) => i.estado === "Cumple parcialmente").length
-    const noCumple = allItems.filter((i) => i.estado === "No cumple").length
-    const noAplica = allItems.filter((i) => i.estado === "No aplica").length
+    // Sumar las estadísticas de cada auditoría (que vienen del Excel)
+    const cumple = auditFiles.reduce((sum, file) => sum + file.cumple, 0)
+    const cumpleParcial = auditFiles.reduce((sum, file) => sum + file.cumpleParcial, 0)
+    const noCumple = auditFiles.reduce((sum, file) => sum + file.noCumple, 0)
+    const noAplica = auditFiles.reduce((sum, file) => sum + file.noAplica, 0)
 
     const itemsEvaluados = totalItems - noAplica
     
@@ -51,14 +54,15 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     // Por operacion
     const porOperacion: Record<string, { total: number; cumplimiento: number; auditorias: number }> = {}
     auditFiles.forEach((file) => {
-      const itemsOp = file.items.filter((i) => i.estado !== "No aplica")
+      // Usar totalItems del Excel (items evaluados = totalItems - noAplica)
+      const itemsEvaluadosOp = file.totalItems - file.noAplica
       // Usar el cumplimiento del Excel en lugar de calcularlo
       const cumplimientoOp = file.cumplimiento
 
       if (!porOperacion[file.operacion]) {
         porOperacion[file.operacion] = { total: 0, cumplimiento: 0, auditorias: 0 }
       }
-      porOperacion[file.operacion].total += itemsOp.length
+      porOperacion[file.operacion].total += itemsEvaluadosOp
       porOperacion[file.operacion].cumplimiento =
         (porOperacion[file.operacion].cumplimiento * porOperacion[file.operacion].auditorias + cumplimientoOp) /
         (porOperacion[file.operacion].auditorias + 1)
@@ -68,14 +72,15 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     // Por auditor
     const porAuditor: Record<string, { total: number; cumplimiento: number; auditorias: number }> = {}
     auditFiles.forEach((file) => {
-      const itemsAud = file.items.filter((i) => i.estado !== "No aplica")
+      // Usar totalItems del Excel (items evaluados = totalItems - noAplica)
+      const itemsEvaluadosAud = file.totalItems - file.noAplica
       // Usar el cumplimiento del Excel en lugar de calcularlo
       const cumplimientoAud = file.cumplimiento
 
       if (!porAuditor[file.auditor]) {
         porAuditor[file.auditor] = { total: 0, cumplimiento: 0, auditorias: 0 }
       }
-      porAuditor[file.auditor].total += itemsAud.length
+      porAuditor[file.auditor].total += itemsEvaluadosAud
       porAuditor[file.auditor].cumplimiento =
         (porAuditor[file.auditor].cumplimiento * porAuditor[file.auditor].auditorias + cumplimientoAud) /
         (porAuditor[file.auditor].auditorias + 1)
@@ -86,14 +91,15 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     const porMes: Record<string, { total: number; cumplimiento: number; auditorias: number }> = {}
     auditFiles.forEach((file) => {
       const mes = `${file.fecha.getFullYear()}-${String(file.fecha.getMonth() + 1).padStart(2, "0")}`
-      const itemsMes = file.items.filter((i) => i.estado !== "No aplica")
+      // Usar totalItems del Excel (items evaluados = totalItems - noAplica)
+      const itemsEvaluadosMes = file.totalItems - file.noAplica
       // Usar el cumplimiento del Excel en lugar de calcularlo
       const cumplimientoMes = file.cumplimiento
 
       if (!porMes[mes]) {
         porMes[mes] = { total: 0, cumplimiento: 0, auditorias: 0 }
       }
-      porMes[mes].total += itemsMes.length
+      porMes[mes].total += itemsEvaluadosMes
       porMes[mes].cumplimiento =
         (porMes[mes].cumplimiento * porMes[mes].auditorias + cumplimientoMes) / (porMes[mes].auditorias + 1)
       porMes[mes].auditorias += 1

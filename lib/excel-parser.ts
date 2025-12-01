@@ -353,19 +353,46 @@ export async function parseExcelFile(file: File): Promise<AuditFile> {
     })
   }
 
-  // Calcular estadísticas
-  const cumple = items.filter((i) => i.estado === "Cumple").length
-  const cumpleParcial = items.filter((i) => i.estado === "Cumple parcialmente").length
-  const noCumple = items.filter((i) => i.estado === "No cumple").length
-  const noAplica = items.filter((i) => i.estado === "No aplica").length
-  const itemsEvaluados = items.length - noAplica
+  // Función auxiliar para leer un valor numérico de una celda específica
+  const readCellValue = (cell: { row: number; col: number } | null): number | null => {
+    if (!cell) return null
+    if (cell.row >= 0 && cell.row < jsonData.length && jsonData[cell.row]) {
+      const row = jsonData[cell.row]
+      if (cell.col >= 0 && cell.col < row.length) {
+        const cellValue = row[cell.col]
+        if (cellValue !== undefined && cellValue !== null && cellValue !== "") {
+          const numValue = typeof cellValue === "number" ? cellValue : Number.parseInt(String(cellValue), 10)
+          if (!isNaN(numValue) && numValue >= 0) {
+            return numValue
+          }
+        }
+      }
+    }
+    return null
+  }
+
+  // Leer estadísticas del Excel usando la configuración
+  const totalItemsFromExcel = savedConfig?.totalItemsCell ? readCellValue(savedConfig.totalItemsCell) : null
+  const cumpleFromExcel = savedConfig?.cumpleCell ? readCellValue(savedConfig.cumpleCell) : null
+  const cumpleParcialFromExcel = savedConfig?.cumpleParcialCell ? readCellValue(savedConfig.cumpleParcialCell) : null
+  const noCumpleFromExcel = savedConfig?.noCumpleCell ? readCellValue(savedConfig.noCumpleCell) : null
+  const noAplicaFromExcel = savedConfig?.noAplicaCell ? readCellValue(savedConfig.noAplicaCell) : null
+
+  // Usar valores del Excel si están configurados, sino calcular desde items parseados
+  const totalItems = totalItemsFromExcel !== null ? totalItemsFromExcel : items.length
+  const cumple = cumpleFromExcel !== null ? cumpleFromExcel : items.filter((i) => i.estado === "Cumple").length
+  const cumpleParcial = cumpleParcialFromExcel !== null ? cumpleParcialFromExcel : items.filter((i) => i.estado === "Cumple parcialmente").length
+  const noCumple = noCumpleFromExcel !== null ? noCumpleFromExcel : items.filter((i) => i.estado === "No cumple").length
+  const noAplica = noAplicaFromExcel !== null ? noAplicaFromExcel : items.filter((i) => i.estado === "No aplica").length
+  
+  const itemsEvaluados = totalItems - noAplica
   
   // Usar el cumplimiento del Excel si se encontró, sino calcularlo
   let cumplimiento: number
   if (cumplimientoFromExcel !== null) {
     cumplimiento = cumplimientoFromExcel
   } else {
-    // Calcular como fallback
+    // Calcular como fallback solo si tenemos items evaluados
     cumplimiento = itemsEvaluados > 0 ? ((cumple + cumpleParcial * 0.5) / itemsEvaluados) * 100 : 0
   }
 
@@ -378,7 +405,7 @@ export async function parseExcelFile(file: File): Promise<AuditFile> {
     auditor,
     items,
     cumplimiento: Number.parseFloat(cumplimiento.toFixed(2)), // Redondear a 2 decimales
-    totalItems: items.length,
+    totalItems,
     cumple,
     cumpleParcial,
     noCumple,
