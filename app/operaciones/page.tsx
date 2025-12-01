@@ -13,7 +13,39 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Building2, TrendingUp, AlertTriangle, CheckCircle2, Calendar } from "lucide-react"
 import Link from "next/link"
-import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer } from "recharts"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts"
+
+const CustomTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload
+    const value = payload[0].value
+    
+    return (
+      <div className="bg-popover border border-border rounded-lg shadow-lg p-4 max-w-[280px]">
+        <p className="font-semibold text-sm mb-3">{data.categoria}</p>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm text-muted-foreground">Cumplimiento</span>
+            <span className={`text-sm font-bold tabular-nums ${
+              value >= 80 ? 'text-success' : 
+              value >= 60 ? 'text-warning' : 
+              'text-destructive'
+            }`}>
+              {value.toFixed(1)}%
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm text-muted-foreground">Items Cumplidos</span>
+            <span className="text-sm font-semibold tabular-nums">
+              {data.cumple} / {data.total}
+            </span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  return null
+}
 
 export default function OperacionesPage() {
   const { auditFiles, getAllItems, getStats } = useAudit()
@@ -98,12 +130,16 @@ export default function OperacionesPage() {
     }
   })
 
-  const radarData = Object.entries(categorias)
+  const categoriasData = Object.entries(categorias)
     .map(([categoria, data]) => ({
-      categoria: categoria.length > 20 ? categoria.substring(0, 20) + "..." : categoria,
-      cumplimiento: data.total > 0 ? Math.round((data.cumple / data.total) * 100) : 0,
+      categoria: categoria,
+      categoriaCorta: categoria.length > 40 ? categoria.substring(0, 40) + "..." : categoria,
+      cumplimiento: data.total > 0 ? Math.round((data.cumple / data.total) * 100 * 10) / 10 : 0,
+      cumple: data.cumple,
+      total: data.total,
     }))
-    .slice(0, 8)
+    .sort((a, b) => b.cumplimiento - a.cumplimiento)
+    .slice(0, 10)
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -174,102 +210,110 @@ export default function OperacionesPage() {
                 </CardTitle>
                 <CardDescription>
                   Comparación de desempeño entre áreas de la operación
-                  {radarData.length > 0 && (
+                  {categoriasData.length > 0 && (
                     <span className="ml-2">
                       • Promedio: <span className="font-semibold">
-                        {Math.round(radarData.reduce((acc, d) => acc + d.cumplimiento, 0) / radarData.length)}%
+                        {Math.round(categoriasData.reduce((acc, d) => acc + d.cumplimiento, 0) / categoriasData.length)}%
                       </span>
                     </span>
                   )}
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {radarData.length > 0 ? (
+                {categoriasData.length > 0 ? (
                   <>
-                    <ResponsiveContainer width="100%" height={320}>
-                      <RadarChart data={radarData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                    <ResponsiveContainer width="100%" height={Math.max(400, categoriasData.length * 50)}>
+                      <BarChart 
+                        data={categoriasData} 
+                        layout="vertical"
+                        margin={{ top: 10, right: 30, left: 0, bottom: 10 }}
+                      >
                         <defs>
-                          <linearGradient id="radarGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
-                            <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.1} />
+                          <linearGradient id="barGradient" x1="0" y1="0" x2="1" y2="0">
+                            <stop offset="0%" stopColor="#10b981" stopOpacity={0.8} />
+                            <stop offset="50%" stopColor="#f59e0b" stopOpacity={0.8} />
+                            <stop offset="100%" stopColor="#ef4444" stopOpacity={0.8} />
                           </linearGradient>
                         </defs>
-                        <PolarGrid 
+                        <CartesianGrid 
+                          strokeDasharray="3 3" 
                           stroke="hsl(var(--border))" 
-                          strokeWidth={1}
-                          opacity={0.5}
+                          opacity={0.3}
+                          horizontal={true}
+                          vertical={false}
                         />
-                        <PolarAngleAxis 
-                          dataKey="categoria" 
-                          tick={{ 
-                            fill: "hsl(var(--foreground))", 
-                            fontSize: 11,
-                            fontWeight: 500
-                          }} 
+                        <XAxis 
+                          type="number"
+                          domain={[0, 100]}
+                          tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+                          tickLine={{ stroke: "hsl(var(--border))" }}
+                          label={{ 
+                            value: '% Cumplimiento', 
+                            position: 'insideBottom',
+                            offset: -5,
+                            style: { textAnchor: 'middle', fill: 'hsl(var(--muted-foreground))', fontSize: 12 }
+                          }}
                         />
-                        <PolarRadiusAxis 
-                          angle={90} 
-                          domain={[0, 100]} 
-                          tick={{ 
-                            fill: "hsl(var(--muted-foreground))",
-                            fontSize: 10
-                          }} 
-                          tickCount={5}
+                        <YAxis 
+                          type="category"
+                          dataKey="categoriaCorta"
+                          tick={{ fontSize: 12, fill: "hsl(var(--foreground))" }}
+                          tickLine={{ stroke: "hsl(var(--border))" }}
+                          width={150}
                         />
-                        <Radar
+                        <Tooltip content={<CustomTooltip />} />
+                        <Bar 
+                          dataKey="cumplimiento" 
                           name="% Cumplimiento"
-                          dataKey="cumplimiento"
-                          stroke="hsl(var(--primary))"
-                          strokeWidth={2}
-                          fill="url(#radarGradient)"
-                          fillOpacity={0.6}
-                          dot={{ 
-                            fill: "hsl(var(--primary))", 
-                            strokeWidth: 2, 
-                            r: 4,
-                            stroke: "hsl(var(--background))"
-                          }}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "hsl(var(--popover))",
-                            border: "1px solid hsl(var(--border))",
-                            borderRadius: "8px",
-                            padding: "12px",
-                          }}
-                          formatter={(value: number) => [`${value.toFixed(1)}%`, "Cumplimiento"]}
-                        />
-                      </RadarChart>
+                          radius={[0, 8, 8, 0]}
+                        >
+                          {categoriasData.map((entry, index) => {
+                            let color = "#10b981" // Verde
+                            if (entry.cumplimiento < 80) color = "#f59e0b" // Ámbar
+                            if (entry.cumplimiento < 60) color = "#ef4444" // Rojo
+                            
+                            return (
+                              <Cell key={`cell-${index}`} fill={color} />
+                            )
+                          })}
+                        </Bar>
+                      </BarChart>
                     </ResponsiveContainer>
                     <div className="mt-4 pt-4 border-t border-border">
                       <div className="grid grid-cols-2 gap-3">
-                        <div className="text-center">
-                          <p className="text-xs text-muted-foreground mb-1">Mejor Área</p>
-                          <p className="text-sm font-semibold truncate">
-                            {radarData.reduce((max, item) => 
-                              item.cumplimiento > max.cumplimiento ? item : max
-                            ).categoria}
-                          </p>
-                          <p className="text-lg font-bold text-success mt-1">
-                            {Math.max(...radarData.map(d => d.cumplimiento)).toFixed(0)}%
-                          </p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-xs text-muted-foreground mb-1">Área a Mejorar</p>
-                          <p className="text-sm font-semibold truncate">
-                            {radarData.reduce((min, item) => 
-                              item.cumplimiento < min.cumplimiento ? item : min
-                            ).categoria}
-                          </p>
-                          <p className="text-lg font-bold text-destructive mt-1">
-                            {Math.min(...radarData.map(d => d.cumplimiento)).toFixed(0)}%
-                          </p>
-                        </div>
+                        {categoriasData.length > 0 && (
+                          <>
+                            <div className="flex items-start gap-3 p-3 rounded-lg bg-success/5 border border-success/20">
+                              <CheckCircle2 className="h-5 w-5 text-success flex-shrink-0 mt-0.5" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs text-muted-foreground mb-1">Mejor Área</p>
+                                <p className="text-sm font-semibold truncate">{categoriasData[0].categoria}</p>
+                                <p className="text-lg font-bold text-success mt-1">
+                                  {categoriasData[0].cumplimiento.toFixed(1)}%
+                                </p>
+                              </div>
+                            </div>
+                            {categoriasData.length > 1 && (
+                              <div className="flex items-start gap-3 p-3 rounded-lg bg-destructive/5 border border-destructive/20">
+                                <AlertTriangle className="h-5 w-5 text-destructive flex-shrink-0 mt-0.5" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs text-muted-foreground mb-1">Área a Mejorar</p>
+                                  <p className="text-sm font-semibold truncate">
+                                    {categoriasData[categoriasData.length - 1].categoria}
+                                  </p>
+                                  <p className="text-lg font-bold text-destructive mt-1">
+                                    {categoriasData[categoriasData.length - 1].cumplimiento.toFixed(1)}%
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
                     </div>
                   </>
                 ) : (
-                  <div className="flex items-center justify-center h-[320px] text-muted-foreground">
+                  <div className="flex items-center justify-center h-[400px] text-muted-foreground">
                     No hay datos de categorías disponibles
                   </div>
                 )}
