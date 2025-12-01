@@ -166,24 +166,113 @@ export default function OperacionesPage() {
           <div className="grid gap-6 lg:grid-cols-2 mb-6">
             <Card>
               <CardHeader>
-                <CardTitle>Cumplimiento por Categoría</CardTitle>
-                <CardDescription>Comparación de desempeño entre áreas</CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <Building2 className="h-4 w-4 text-primary" />
+                  </div>
+                  Cumplimiento por Categoría
+                </CardTitle>
+                <CardDescription>
+                  Comparación de desempeño entre áreas de la operación
+                  {radarData.length > 0 && (
+                    <span className="ml-2">
+                      • Promedio: <span className="font-semibold">
+                        {Math.round(radarData.reduce((acc, d) => acc + d.cumplimiento, 0) / radarData.length)}%
+                      </span>
+                    </span>
+                  )}
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <RadarChart data={radarData}>
-                    <PolarGrid stroke="hsl(var(--border))" />
-                    <PolarAngleAxis dataKey="categoria" tick={{ fill: "hsl(var(--foreground))", fontSize: 12 }} />
-                    <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: "hsl(var(--foreground))" }} />
-                    <Radar
-                      name="% Cumplimiento"
-                      dataKey="cumplimiento"
-                      stroke="hsl(var(--chart-1))"
-                      fill="hsl(var(--chart-1))"
-                      fillOpacity={0.6}
-                    />
-                  </RadarChart>
-                </ResponsiveContainer>
+                {radarData.length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <RadarChart data={radarData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                        <defs>
+                          <linearGradient id="radarGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
+                            <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.1} />
+                          </linearGradient>
+                        </defs>
+                        <PolarGrid 
+                          stroke="hsl(var(--border))" 
+                          strokeWidth={1}
+                          opacity={0.5}
+                        />
+                        <PolarAngleAxis 
+                          dataKey="categoria" 
+                          tick={{ 
+                            fill: "hsl(var(--foreground))", 
+                            fontSize: 11,
+                            fontWeight: 500
+                          }} 
+                        />
+                        <PolarRadiusAxis 
+                          angle={90} 
+                          domain={[0, 100]} 
+                          tick={{ 
+                            fill: "hsl(var(--muted-foreground))",
+                            fontSize: 10
+                          }} 
+                          tickCount={5}
+                        />
+                        <Radar
+                          name="% Cumplimiento"
+                          dataKey="cumplimiento"
+                          stroke="hsl(var(--primary))"
+                          strokeWidth={2}
+                          fill="url(#radarGradient)"
+                          fillOpacity={0.6}
+                          dot={{ 
+                            fill: "hsl(var(--primary))", 
+                            strokeWidth: 2, 
+                            r: 4,
+                            stroke: "hsl(var(--background))"
+                          }}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "hsl(var(--popover))",
+                            border: "1px solid hsl(var(--border))",
+                            borderRadius: "8px",
+                            padding: "12px",
+                          }}
+                          formatter={(value: number) => [`${value.toFixed(1)}%`, "Cumplimiento"]}
+                        />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                    <div className="mt-4 pt-4 border-t border-border">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="text-center">
+                          <p className="text-xs text-muted-foreground mb-1">Mejor Área</p>
+                          <p className="text-sm font-semibold truncate">
+                            {radarData.reduce((max, item) => 
+                              item.cumplimiento > max.cumplimiento ? item : max
+                            ).categoria}
+                          </p>
+                          <p className="text-lg font-bold text-success mt-1">
+                            {Math.max(...radarData.map(d => d.cumplimiento)).toFixed(0)}%
+                          </p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-xs text-muted-foreground mb-1">Área a Mejorar</p>
+                          <p className="text-sm font-semibold truncate">
+                            {radarData.reduce((min, item) => 
+                              item.cumplimiento < min.cumplimiento ? item : min
+                            ).categoria}
+                          </p>
+                          <p className="text-lg font-bold text-destructive mt-1">
+                            {Math.min(...radarData.map(d => d.cumplimiento)).toFixed(0)}%
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center h-[320px] text-muted-foreground">
+                    No hay datos de categorías disponibles
+                  </div>
+                )}
               </CardContent>
             </Card>
 

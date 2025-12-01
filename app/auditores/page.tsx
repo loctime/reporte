@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { User, TrendingUp, AlertTriangle, Calendar, Building2 } from "lucide-react"
 import Link from "next/link"
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts"
 
 export default function AuditoresPage() {
   const { auditFiles, getAllItems, getStats } = useAudit()
@@ -153,25 +153,115 @@ export default function AuditoresPage() {
           <div className="grid gap-6 lg:grid-cols-2 mb-6">
             <Card>
               <CardHeader>
-                <CardTitle>Distribución de Hallazgos</CardTitle>
-                <CardDescription>Estados detectados por este auditor</CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <User className="h-4 w-4 text-primary" />
+                  </div>
+                  Distribución de Hallazgos
+                </CardTitle>
+                <CardDescription>
+                  Estados detectados por este auditor en todas sus evaluaciones
+                  {distribucionData.length > 0 && (
+                    <span className="ml-2">
+                      • Total: <span className="font-semibold">
+                        {distribucionData.reduce((acc, d) => acc + d.value, 0).toLocaleString()} items
+                      </span>
+                    </span>
+                  )}
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={distribucionData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="name" stroke="hsl(var(--foreground))" />
-                    <YAxis stroke="hsl(var(--foreground))" />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--card))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: "8px",
-                      }}
-                    />
-                    <Bar dataKey="value" fill="hsl(var(--chart-1))" name="Cantidad" />
-                  </BarChart>
-                </ResponsiveContainer>
+                {distribucionData.length > 0 && distribucionData.some(d => d.value > 0) ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <BarChart data={distribucionData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+                        <CartesianGrid 
+                          strokeDasharray="3 3" 
+                          stroke="hsl(var(--border))" 
+                          opacity={0.3}
+                        />
+                        <XAxis 
+                          dataKey="name" 
+                          tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+                          tickLine={{ stroke: "hsl(var(--border))" }}
+                        />
+                        <YAxis 
+                          tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+                          tickLine={{ stroke: "hsl(var(--border))" }}
+                          label={{ 
+                            value: 'Cantidad de Items', 
+                            angle: -90, 
+                            position: 'insideLeft',
+                            style: { textAnchor: 'middle', fill: 'hsl(var(--muted-foreground))', fontSize: 12 }
+                          }}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "hsl(var(--popover))",
+                            border: "1px solid hsl(var(--border))",
+                            borderRadius: "8px",
+                            padding: "12px",
+                          }}
+                          formatter={(value: number, name: string) => [
+                            `${value.toLocaleString()} items`,
+                            name
+                          ]}
+                        />
+                        <Bar 
+                          dataKey="value" 
+                          name="Cantidad"
+                          radius={[8, 8, 0, 0]}
+                        >
+                          {distribucionData.map((entry, index) => {
+                            let color = "hsl(var(--primary))"
+                            if (entry.name === "Cumple") color = "#10b981"
+                            else if (entry.name === "Parcial") color = "#f59e0b"
+                            else if (entry.name === "No Cumple") color = "#ef4444"
+                            else if (entry.name === "No Aplica") color = "#6b7280"
+                            
+                            return (
+                              <Cell key={`cell-${index}`} fill={color} />
+                            )
+                          })}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <div className="mt-4 pt-4 border-t border-border">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {distribucionData.map((item) => {
+                          const total = distribucionData.reduce((acc, d) => acc + d.value, 0)
+                          const percentage = total > 0 ? ((item.value / total) * 100).toFixed(1) : "0"
+                          
+                          let color = "hsl(var(--primary))"
+                          if (item.name === "Cumple") color = "#10b981"
+                          else if (item.name === "Parcial") color = "#f59e0b"
+                          else if (item.name === "No Cumple") color = "#ef4444"
+                          else if (item.name === "No Aplica") color = "#6b7280"
+                          
+                          return (
+                            <div key={item.name} className="text-center">
+                              <div className="flex items-center justify-center gap-2 mb-1">
+                                <div 
+                                  className="h-3 w-3 rounded-full" 
+                                  style={{ backgroundColor: color }}
+                                />
+                                <p className="text-xs text-muted-foreground">{item.name}</p>
+                              </div>
+                              <p className="text-lg font-bold tabular-nums" style={{ color }}>
+                                {item.value.toLocaleString()}
+                              </p>
+                              <p className="text-xs text-muted-foreground">{percentage}%</p>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center h-[320px] text-muted-foreground">
+                    No hay datos disponibles
+                  </div>
+                )}
               </CardContent>
             </Card>
 
