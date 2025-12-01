@@ -7,12 +7,14 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Upload, FileSpreadsheet, Loader2, CheckCircle2, AlertCircle, X } from "lucide-react"
+import { Upload, FileSpreadsheet, Loader2, CheckCircle2, AlertCircle, X, Settings } from "lucide-react"
 import * as XLSX from "xlsx"
 import { parseExcelFile } from "@/lib/excel-parser"
 import { cn } from "@/lib/utils"
 import type { AuditFile } from "@/lib/types"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ColumnConfigurator } from "@/components/column-configurator"
+import { loadColumnConfig, clearColumnConfig, type ColumnConfig } from "@/lib/column-config"
 
 interface ExcelDebugData {
   rawData: any[][]
@@ -37,6 +39,8 @@ export default function VerificarPage() {
   const [file, setFile] = useState<File | null>(null)
   const [debugData, setDebugData] = useState<ExcelDebugData | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [showConfigurator, setShowConfigurator] = useState(false)
+  const [savedConfig, setSavedConfig] = useState<ColumnConfig | null>(loadColumnConfig())
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return
@@ -51,6 +55,19 @@ export default function VerificarPage() {
       const workbook = XLSX.read(data, { type: "array" })
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
       const rawData: any[][] = XLSX.utils.sheet_to_json(firstSheet, { header: 1 })
+
+      // Verificar si hay configuración guardada
+      const config = loadColumnConfig()
+      setSavedConfig(config)
+
+      // Si no hay configuración y encontramos la fila de encabezados, mostrar configurador
+      const headerRowIndex = rawData.findIndex(
+        (row) => row && row.some((cell: any) => String(cell).includes("CUMPLE") || String(cell).includes("ITEMS")),
+      )
+
+      if (!config && headerRowIndex !== -1) {
+        setShowConfigurator(true)
+      }
 
       // Intentar parsear con el parser
       let parsedData: AuditFile | null = null
@@ -124,6 +141,34 @@ export default function VerificarPage() {
   const clearFile = () => {
     setFile(null)
     setDebugData(null)
+    setShowConfigurator(false)
+  }
+
+  const handleConfigComplete = async (config: ColumnConfig) => {
+    setSavedConfig(config)
+    setShowConfigurator(false)
+    // Re-procesar el archivo con la nueva configuración
+    if (file) {
+      setIsProcessing(true)
+      try {
+        const parsedData = await parseExcelFile(file)
+        setDebugData((prev) => (prev ? { ...prev, parsedData } : null))
+      } catch (error) {
+        // Error handling
+      } finally {
+        setIsProcessing(false)
+      }
+    }
+  }
+
+  const handleConfigSkip = () => {
+    setShowConfigurator(false)
+  }
+
+  const handleReconfigure = () => {
+    clearColumnConfig()
+    setSavedConfig(null)
+    setShowConfigurator(true)
   }
 
   return (
@@ -190,6 +235,39 @@ export default function VerificarPage() {
               )}
             </CardContent>
           </Card>
+
+          {showConfigurator && debugData && debugData.metadata.headerRowIndex !== null && (
+            <ColumnConfigurator
+              rawData={debugData.rawData}
+              headerRowIndex={debugData.metadata.headerRowIndex}
+              onConfigComplete={handleConfigComplete}
+              onSkip={handleConfigSkip}
+            />
+          )}
+
+          {savedConfig && !showConfigurator && (
+            <Card className="mb-6 border-primary/20 bg-primary/5">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="h-5 w-5 text-success" />
+                    <div>
+                      <p className="font-semibold">Configuración de Columnas Activa</p>
+                      <p className="text-sm text-muted-foreground">
+                        Pregunta: Col {savedConfig.pregunta + 1} | Cumple: Col {savedConfig.cumple + 1} | Cumple
+                        Parcial: Col {savedConfig.cumpleParcial + 1} | No Cumple: Col {savedConfig.noCumple + 1} | No
+                        Aplica: Col {savedConfig.noAplica + 1}
+                      </p>
+                    </div>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={handleReconfigure}>
+                    <Settings className="h-4 w-4 mr-2" />
+                    Reconfigurar
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {debugData && (
             <Tabs defaultValue="metadata" className="space-y-4">

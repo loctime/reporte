@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx"
 import type { AuditFile, AuditItem, AuditStatus } from "./types"
+import { loadColumnConfig, type ColumnConfig } from "./column-config"
 
 interface ColumnMapping {
   pregunta: number | null
@@ -31,26 +32,49 @@ export async function parseExcelFile(file: File): Promise<AuditFile> {
     if (!row) continue
 
     const rowText = row.join(" ").toLowerCase()
+    const rowTextOriginal = row.join(" ")
 
-    if (rowText.includes("operación:") || rowText.includes("operacion:")) {
-      operacion = extractValue(row.join(" "), "Operación:") || extractValue(row.join(" "), "Operacion:")
+    // Buscar cada campo en la fila completa
+    if ((rowText.includes("operación:") || rowText.includes("operacion:")) && !operacion) {
+      const opValue = extractValue(rowTextOriginal, "Operación:") || extractValue(rowTextOriginal, "Operacion:")
+      if (opValue && opValue.length > 0 && !opValue.includes("Responsable") && !opValue.includes("Fecha")) {
+        operacion = opValue.trim()
+      }
     }
-    if (rowText.includes("responsable")) {
-      responsable = extractValue(row.join(" "), "Responsable de la Operación:") || 
-                    extractValue(row.join(" "), "Responsable:")
+    if (rowText.includes("responsable") && !responsable) {
+      const respValue = extractValue(rowTextOriginal, "Responsable de la Operación:") || 
+                        extractValue(rowTextOriginal, "Responsable:")
+      if (respValue && respValue.length > 0 && !respValue.includes("Operación") && !respValue.includes("Fecha")) {
+        responsable = respValue.trim()
+      }
     }
-    if (rowText.includes("cliente:")) {
-      cliente = extractValue(row.join(" "), "Cliente:")
+    if (rowText.includes("cliente:") && !cliente) {
+      const cliValue = extractValue(rowTextOriginal, "Cliente:")
+      // Solo tomar si no es la línea del criterio
+      if (cliValue && cliValue.length > 0 && !cliValue.includes("Criterio:") && !cliValue.includes("C=")) {
+        cliente = cliValue.trim()
+      }
     }
-    if (rowText.includes("fecha:")) {
-      const fechaStr = extractValue(row.join(" "), "Fecha:")
-      fecha = parseFecha(fechaStr)
+    if (rowText.includes("fecha:") && fecha.getTime() === new Date().getTime()) {
+      const fechaStr = extractValue(rowTextOriginal, "Fecha:")
+      if (fechaStr) {
+        const parsedFecha = parseFecha(fechaStr)
+        if (parsedFecha.getFullYear() > 2000 && parsedFecha.getFullYear() < 2100) {
+          fecha = parsedFecha
+        }
+      }
     }
-    if (rowText.includes("auditor:")) {
-      auditor = extractValue(row.join(" "), "Auditor:")
+    if (rowText.includes("auditor:") && !auditor) {
+      const audValue = extractValue(rowTextOriginal, "Auditor:")
+      if (audValue && audValue.length > 0) {
+        auditor = audValue.trim()
+      }
     }
   }
 
+  // Verificar si hay configuración guardada
+  const savedConfig = loadColumnConfig()
+  
   // Encontrar la fila de encabezados de la tabla
   let headerRowIndex = -1
   let columnMapping: ColumnMapping = {
@@ -62,68 +86,110 @@ export async function parseExcelFile(file: File): Promise<AuditFile> {
     observacion: null,
   }
 
-  for (let i = 0; i < jsonData.length; i++) {
-    const row = jsonData[i]
-    if (!row) continue
+  // Si hay configuración guardada, usarla directamente
+  if (savedConfig) {
+    headerRowIndex = savedConfig.headerRowIndex
+    columnMapping = {
+      pregunta: savedConfig.pregunta,
+      cumple: savedConfig.cumple,
+      cumpleParcial: savedConfig.cumpleParcial,
+      noCumple: savedConfig.noCumple,
+      noAplica: savedConfig.noAplica,
+      observacion: savedConfig.observacion,
+    }
+  }
 
-    // Buscar fila que contenga encabezados de estado
-    const rowText = row.map((cell) => String(cell || "").toLowerCase()).join(" ")
-    
-    if (rowText.includes("cumple") || rowText.includes("items") || rowText.includes("pregunta")) {
-      headerRowIndex = i
+  // Solo buscar encabezados si no hay configuración guardada
+  if (!savedConfig) {
+    for (let i = 0; i < jsonData.length; i++) {
+      const row = jsonData[i]
+      if (!row) continue
+
+      // Buscar fila que contenga encabezados de estado
+      const rowText = row.map((cell) => String(cell || "").toLowerCase()).join(" ")
       
-      // Detectar columnas basándose en los encabezados
-      for (let col = 0; col < row.length; col++) {
-        const cell = String(row[col] || "").toLowerCase().trim()
-        
-        // Detectar columna de pregunta
-        if (!columnMapping.pregunta && (cell.includes("pregunta") || cell.includes("item") || cell.includes("criterio"))) {
-          columnMapping.pregunta = col
-        }
-        
-        // Detectar columnas de estado
-        if (cell.includes("cumple") && !cell.includes("parcial") && !cell.includes("no")) {
-          if (!columnMapping.cumple) columnMapping.cumple = col
-        } else if (cell.includes("parcial") || cell.includes("cp")) {
-          if (!columnMapping.cumpleParcial) columnMapping.cumpleParcial = col
-        } else if (cell.includes("no cumple") || cell.includes("nc") || (cell.includes("no") && cell.includes("cumple"))) {
-          if (!columnMapping.noCumple) columnMapping.noCumple = col
-        } else if (cell.includes("no aplica") || cell.includes("na") || (cell.includes("no") && cell.includes("aplica"))) {
-          if (!columnMapping.noAplica) columnMapping.noAplica = col
-        }
-        
-        // Detectar columna de observación
-        if (!columnMapping.observacion && (cell.includes("observación") || cell.includes("observacion") || cell.includes("comentario"))) {
-          columnMapping.observacion = col
-        }
-      }
+      if (rowText.includes("cumple") || rowText.includes("items") || rowText.includes("pregunta")) {
+        headerRowIndex = i
       
-      // Si no encontramos las columnas por nombre, usar detección por posición
-      if (!columnMapping.cumple && !columnMapping.cumpleParcial && !columnMapping.noCumple && !columnMapping.noAplica) {
-        // Buscar columnas con "x" en las primeras filas de datos para inferir posiciones
-        for (let testRow = i + 1; testRow < Math.min(i + 5, jsonData.length); testRow++) {
-          const testData = jsonData[testRow]
-          if (!testData) continue
+        // Detectar columnas basándose en los encabezados
+        for (let col = 0; col < row.length; col++) {
+          const cell = String(row[col] || "").toLowerCase().trim()
           
-          for (let col = 0; col < testData.length; col++) {
-            const cell = String(testData[col] || "").trim().toLowerCase()
-            if (cell === "x" || cell === "X") {
-              // Asignar según orden típico si no tenemos mapeo
-              if (columnMapping.cumple === null) {
-                columnMapping.cumple = col
-              } else if (columnMapping.cumpleParcial === null && col !== columnMapping.cumple) {
-                columnMapping.cumpleParcial = col
-              } else if (columnMapping.noCumple === null && col !== columnMapping.cumple && col !== columnMapping.cumpleParcial) {
-                columnMapping.noCumple = col
-              } else if (columnMapping.noAplica === null && col !== columnMapping.cumple && col !== columnMapping.cumpleParcial && col !== columnMapping.noCumple) {
-                columnMapping.noAplica = col
+          // Detectar columna de pregunta - puede ser "PUNTOS DE CHEQUEO", "PREGUNTA", etc.
+          if (!columnMapping.pregunta && (
+            cell.includes("pregunta") || 
+            cell.includes("chequeo") || 
+            cell.includes("puntos") ||
+            cell.includes("item") && !cell.includes("items") ||
+            cell.includes("criterio")
+          )) {
+            columnMapping.pregunta = col
+          }
+          
+          // Detectar columnas de estado - orden específico para evitar conflictos
+          // Primero buscar las más específicas (las que contienen múltiples palabras)
+          const cellNormalized = cell.replace(/\s+/g, " ").trim()
+          
+          if (cellNormalized.includes("no aplica") || cellNormalized === "na" || 
+              (cellNormalized.includes("no") && cellNormalized.includes("aplica") && !cellNormalized.includes("cumple"))) {
+            if (columnMapping.noAplica === null) columnMapping.noAplica = col
+          } else if (cellNormalized.includes("no cumple") || cellNormalized === "nc" || 
+                     (cellNormalized.includes("no") && cellNormalized.includes("cumple"))) {
+            if (columnMapping.noCumple === null) columnMapping.noCumple = col
+          } else if (cellNormalized.includes("parcial") || cellNormalized.includes("cp") || 
+                     cellNormalized.includes("cumple parcial") || cellNormalized === "cumple parcial") {
+            if (columnMapping.cumpleParcial === null) columnMapping.cumpleParcial = col
+          } else if (cellNormalized === "cumple" || 
+                     (cellNormalized.includes("cumple") && !cellNormalized.includes("parcial") && !cellNormalized.includes("no"))) {
+            if (columnMapping.cumple === null) columnMapping.cumple = col
+          }
+          
+          // Detectar columna de observación
+          if (!columnMapping.observacion && (cell.includes("observación") || cell.includes("observacion") || cell.includes("comentario"))) {
+            columnMapping.observacion = col
+          }
+        }
+        
+        // Si faltan algunas columnas, usar detección por posición en las primeras filas de datos
+        if (columnMapping.cumple === null || columnMapping.cumpleParcial === null || 
+            columnMapping.noCumple === null || columnMapping.noAplica === null) {
+          // Buscar columnas con "x" en las primeras filas de datos para inferir posiciones faltantes
+          for (let testRow = i + 1; testRow < Math.min(i + 10, jsonData.length); testRow++) {
+            const testData = jsonData[testRow]
+            if (!testData) continue
+            
+            // Saltar filas que son categorías o resúmenes
+            const firstCell = String(testData[0] || "").trim()
+            if (firstCell.length > 0 && !/^\d+$/.test(firstCell) && firstCell.toUpperCase() === firstCell && firstCell.length > 10) {
+              continue
+            }
+            
+            for (let col = 0; col < testData.length; col++) {
+              const cell = String(testData[col] || "").trim().toLowerCase()
+              if (cell === "x" || cell === "X") {
+                // Asignar según orden típico si no tenemos mapeo para esa columna
+                if (columnMapping.cumple === null && col >= 2) {
+                  columnMapping.cumple = col
+                } else if (columnMapping.cumpleParcial === null && col > (columnMapping.cumple ?? 0) && col < 10) {
+                  columnMapping.cumpleParcial = col
+                } else if (columnMapping.noCumple === null && col > (columnMapping.cumpleParcial ?? columnMapping.cumple ?? 0) && col < 10) {
+                  columnMapping.noCumple = col
+                } else if (columnMapping.noAplica === null && col > (columnMapping.noCumple ?? columnMapping.cumpleParcial ?? columnMapping.cumple ?? 0) && col < 10) {
+                  columnMapping.noAplica = col
+                }
               }
+            }
+            
+            // Si ya encontramos todas las columnas, salir
+            if (columnMapping.cumple !== null && columnMapping.cumpleParcial !== null && 
+                columnMapping.noCumple !== null && columnMapping.noAplica !== null) {
+              break
             }
           }
         }
+        
+        break
       }
-      
-      break
     }
   }
 
@@ -135,14 +201,15 @@ export async function parseExcelFile(file: File): Promise<AuditFile> {
   if (columnMapping.pregunta === null) {
     for (let col = 0; col < Math.min(5, jsonData[headerRowIndex]?.length || 0); col++) {
       const cell = String(jsonData[headerRowIndex]?.[col] || "").toLowerCase()
-      if (cell.includes("pregunta") || cell.includes("item") || cell.length === 0) {
+      if (cell.includes("pregunta") || cell.includes("chequeo") || cell.includes("puntos") || 
+          (cell.includes("item") && !cell.includes("items"))) {
         columnMapping.pregunta = col
         break
       }
     }
-    // Si aún no encontramos, usar columna 0 o 1 por defecto
+    // Si aún no encontramos, usar columna 1 por defecto (la 0 suele ser el número)
     if (columnMapping.pregunta === null) {
-      columnMapping.pregunta = 0
+      columnMapping.pregunta = 1
     }
   }
 
@@ -155,25 +222,40 @@ export async function parseExcelFile(file: File): Promise<AuditFile> {
     const row = jsonData[i]
     if (!row || row.length === 0) continue
 
-    // Detectar categoría (filas con número y texto en mayúsculas o texto largo sin pregunta)
-    if (row[0] && typeof row[0] === "number" && row[1] && typeof row[1] === "string") {
-      const possibleCategoria = String(row[1]).trim()
-      const upperCategoria = possibleCategoria.toUpperCase()
-      // Es categoría si es texto largo en mayúsculas o no tiene signo de interrogación
-      if (possibleCategoria.length > 10 && (upperCategoria === possibleCategoria || !possibleCategoria.includes("¿"))) {
-        currentCategoria = possibleCategoria
-        continue
+    // Detectar categoría (filas con número en columna 0 y texto largo en mayúsculas en columna 1)
+    if (row[0] && (typeof row[0] === "number" || (typeof row[0] === "string" && /^\d+$/.test(String(row[0]))))) {
+      if (row[1] && typeof row[1] === "string") {
+        const possibleCategoria = String(row[1]).trim()
+        const upperCategoria = possibleCategoria.toUpperCase()
+        // Es categoría si es texto largo en mayúsculas, no tiene signo de interrogación, y no tiene "x"
+        if (possibleCategoria.length > 10 && 
+            (upperCategoria === possibleCategoria || !possibleCategoria.includes("¿")) &&
+            !possibleCategoria.toLowerCase().includes("x") &&
+            !possibleCategoria.includes("?")) {
+          currentCategoria = possibleCategoria
+          continue
+        }
       }
     }
 
     // Obtener pregunta
-    const preguntaCol = columnMapping.pregunta ?? 0
-    const pregunta = findPregunta(row, preguntaCol)
-    if (!pregunta || pregunta.length < 10) continue
+    const preguntaCol = columnMapping.pregunta ?? 1
+    let pregunta = findPregunta(row, preguntaCol)
+    
+    // Si no encontramos pregunta en la columna preferida, buscar en otras columnas
+    if (!pregunta || pregunta.length < 5) {
+      pregunta = findPregunta(row, null)
+      if (!pregunta || pregunta.length < 5) {
+        continue
+      }
+    }
 
     // Detectar estado usando el mapeo de columnas
     const estado = detectEstado(row, columnMapping)
-    if (!estado) continue
+    if (!estado) {
+      // Si no hay estado pero hay pregunta, podría ser una fila de resumen - saltarla
+      continue
+    }
 
     itemCounter++
 
@@ -228,19 +310,43 @@ function extractValue(text: string, key: string): string {
   if (parts.length < 2) return ""
 
   let value = parts[1].trim()
-  // Limpiar hasta el siguiente campo
-  const nextFields = ["Fecha:", "Auditor:", "Cliente:", "Responsable", "Operación:", "Operacion:"]
+  
+  // Limpiar hasta el siguiente campo o hasta un salto de línea lógico
+  const nextFields = ["Fecha:", "Auditor:", "Cliente:", "Responsable de la Operación:", "Responsable:", "Operación:", "Operacion:"]
   for (const field of nextFields) {
-    if (value.includes(field)) {
+    if (field !== key && value.includes(field)) {
       value = value.split(field)[0].trim()
     }
   }
+  
+  // También limpiar si hay múltiples espacios o caracteres especiales al final
+  value = value.replace(/\s+/g, " ").trim()
+  
   return value
 }
 
 function parseFecha(fechaStr: string): Date {
+  if (!fechaStr || fechaStr.trim().length === 0) {
+    return new Date()
+  }
+  
+  // Limpiar el string de fecha
+  let cleaned = fechaStr.trim()
+  
+  // Si parece ser un número serial de Excel (muy grande), intentar convertirlo
+  const numValue = Number.parseFloat(cleaned)
+  if (!isNaN(numValue) && numValue > 40000 && numValue < 100000) {
+    // Es probablemente un serial de Excel (días desde 1900-01-01)
+    // Excel cuenta desde 1900-01-01, pero tiene un bug donde cuenta 1900 como año bisiesto
+    const excelEpoch = new Date(1899, 11, 30) // 30 de diciembre de 1899
+    const date = new Date(excelEpoch.getTime() + numValue * 24 * 60 * 60 * 1000)
+    if (date.getFullYear() > 2000 && date.getFullYear() < 2100) {
+      return date
+    }
+  }
+  
   // Intentar diferentes formatos de fecha
-  const cleaned = fechaStr.replace(/[^\d/\-]/g, "").trim()
+  cleaned = cleaned.replace(/[^\d/\-]/g, "").trim()
   
   // Formato: MM/DD/YYYY o DD/MM/YYYY
   const parts = cleaned.split(/[\/\-]/)
@@ -249,40 +355,68 @@ function parseFecha(fechaStr: string): Date {
     const part2 = Number.parseInt(parts[1])
     const part3 = Number.parseInt(parts[2])
     
-    // Si el primer número es > 12, asumir formato DD/MM/YYYY
-    if (part1 > 12) {
-      return new Date(part3, part2 - 1, part1)
-    } else {
-      // Asumir MM/DD/YYYY
-      return new Date(part3, part1 - 1, part2)
+    // Validar que los números sean razonables
+    if (part1 > 0 && part1 <= 31 && part2 > 0 && part2 <= 12 && part3 > 2000 && part3 < 2100) {
+      // Si el primer número es > 12, asumir formato DD/MM/YYYY
+      if (part1 > 12) {
+        return new Date(part3, part2 - 1, part1)
+      } else {
+        // Asumir MM/DD/YYYY (formato común en Excel)
+        return new Date(part3, part1 - 1, part2)
+      }
     }
   }
   
   // Intentar parsear directamente
   const parsed = new Date(fechaStr)
-  if (!isNaN(parsed.getTime())) {
+  if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 2000 && parsed.getFullYear() < 2100) {
     return parsed
   }
   
   return new Date()
 }
 
-function findPregunta(row: any[], preferredCol?: number): string {
+function findPregunta(row: any[], preferredCol?: number | null): string {
   // Si tenemos una columna preferida, usarla primero
-  if (preferredCol !== undefined && row[preferredCol] && typeof row[preferredCol] === "string") {
-    const text = String(row[preferredCol]).trim()
-    if (text.length > 10) {
-      return text
+  if (preferredCol !== undefined && preferredCol !== null && preferredCol >= 0 && row[preferredCol] !== undefined && row[preferredCol] !== null) {
+    const cellValue = row[preferredCol]
+    if (typeof cellValue === "string") {
+      const text = String(cellValue).trim()
+      // Pregunta es texto, puede tener "¿" o empezar con espacios y "¿", o ser texto largo
+      if (text.length >= 5 && text !== "x" && text !== "X" && !/^\d+$/.test(text) && text.toLowerCase() !== "na") {
+        // Si tiene "¿" o "?" es muy probable que sea una pregunta
+        if (text.includes("¿") || text.includes("?")) {
+          return text
+        }
+        // Si es texto largo (más de 15 caracteres) probablemente es una pregunta
+        if (text.length > 15) {
+          return text
+        }
+      }
     }
   }
 
-  // Buscar en las primeras columnas
-  for (let i = 0; i < Math.min(6, row.length); i++) {
-    if (row[i] && typeof row[i] === "string") {
-      const text = String(row[i]).trim()
-      // Pregunta es texto largo (más de 15 caracteres) y puede tener signo de interrogación
-      if (text.length > 15) {
-        return text
+  // Buscar en las columnas 1 y 2 principalmente (la 0 suele ser el número de item)
+  const searchCols = preferredCol !== undefined && preferredCol !== null 
+    ? [preferredCol, 1, 2, 0, 3, 4] 
+    : [1, 2, 0, 3, 4, 5]
+  
+  for (const i of searchCols) {
+    if (i >= 0 && i < row.length && row[i] !== undefined && row[i] !== null) {
+      const cellValue = row[i]
+      if (typeof cellValue === "string") {
+        const text = String(cellValue).trim()
+        // Pregunta es texto (más de 5 caracteres) que no es un número ni "x"
+        if (text.length >= 5 && !/^\d+$/.test(text) && text !== "x" && text !== "X" && text.toLowerCase() !== "na") {
+          // Si tiene "¿" o "?" es muy probable que sea una pregunta
+          if (text.includes("¿") || text.includes("?")) {
+            return text
+          }
+          // Si es texto largo (más de 20 caracteres) probablemente es una pregunta
+          if (text.length > 20) {
+            return text
+          }
+        }
       }
     }
   }
