@@ -197,6 +197,79 @@ export async function parseExcelFile(file: File): Promise<AuditFile> {
     throw new Error("No se encontró la estructura de la tabla de auditoría")
   }
 
+  // Buscar columna de cumplimiento en el Excel
+  let cumplimientoCol: number | null = null
+  
+  // Si hay configuración guardada, usar la columna configurada
+  if (savedConfig && savedConfig.cumplimientoCol !== null) {
+    cumplimientoCol = savedConfig.cumplimientoCol
+  } else {
+    // Buscar automáticamente en los encabezados
+    const headerRow = jsonData[headerRowIndex]
+    if (headerRow) {
+      for (let col = 0; col < headerRow.length; col++) {
+        const cell = String(headerRow[col] || "").toLowerCase().trim()
+        if (cell.includes("% de cumplimiento") || cell.includes("cumplimiento") || cell.includes("% cumplimiento")) {
+          cumplimientoCol = col
+          break
+        }
+      }
+    }
+  }
+
+  // Leer el valor de cumplimiento del Excel
+  let cumplimientoFromExcel: number | null = null
+  if (cumplimientoCol !== null) {
+    // Si hay configuración guardada con fila específica, usarla
+    const searchRows = savedConfig && savedConfig.cumplimientoRow !== null
+      ? [savedConfig.cumplimientoRow]
+      : [5, 10, headerRowIndex + 1, headerRowIndex + 2]
+    
+    for (const rowIndex of searchRows) {
+      if (rowIndex >= 0 && rowIndex < jsonData.length) {
+        const row = jsonData[rowIndex]
+        if (row && cumplimientoCol < row.length) {
+          const cellValue = row[cumplimientoCol]
+          if (cellValue !== undefined && cellValue !== null && cellValue !== "") {
+            // Intentar parsear como número
+            const numValue = typeof cellValue === "number" ? cellValue : Number.parseFloat(String(cellValue))
+            if (!isNaN(numValue) && numValue > 0) {
+              // Si es un decimal (0.79375), convertirlo a porcentaje
+              if (numValue < 1) {
+                cumplimientoFromExcel = numValue * 100
+              } else if (numValue <= 100) {
+                cumplimientoFromExcel = numValue
+              }
+              break
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Si no encontramos en la columna específica, buscar en las primeras filas cualquier número que parezca porcentaje
+  if (cumplimientoFromExcel === null && !savedConfig) {
+    for (let rowIndex = 0; rowIndex < Math.min(15, jsonData.length); rowIndex++) {
+      const row = jsonData[rowIndex]
+      if (!row) continue
+      
+      // Buscar en todas las columnas de esta fila
+      for (let col = 0; col < row.length; col++) {
+        const cellValue = row[col]
+        if (cellValue !== undefined && cellValue !== null) {
+          const numValue = typeof cellValue === "number" ? cellValue : Number.parseFloat(String(cellValue))
+          // Si es un decimal entre 0.5 y 1.0, probablemente es el cumplimiento (0.79375 = 79.375%)
+          if (!isNaN(numValue) && numValue >= 0.5 && numValue <= 1.0) {
+            cumplimientoFromExcel = numValue * 100
+            break
+          }
+        }
+      }
+      if (cumplimientoFromExcel !== null) break
+    }
+  }
+
   // Si no encontramos columna de pregunta, buscar en las primeras columnas
   if (columnMapping.pregunta === null) {
     for (let col = 0; col < Math.min(5, jsonData[headerRowIndex]?.length || 0); col++) {
@@ -286,7 +359,15 @@ export async function parseExcelFile(file: File): Promise<AuditFile> {
   const noCumple = items.filter((i) => i.estado === "No cumple").length
   const noAplica = items.filter((i) => i.estado === "No aplica").length
   const itemsEvaluados = items.length - noAplica
-  const cumplimiento = itemsEvaluados > 0 ? ((cumple + cumpleParcial * 0.5) / itemsEvaluados) * 100 : 0
+  
+  // Usar el cumplimiento del Excel si se encontró, sino calcularlo
+  let cumplimiento: number
+  if (cumplimientoFromExcel !== null) {
+    cumplimiento = cumplimientoFromExcel
+  } else {
+    // Calcular como fallback
+    cumplimiento = itemsEvaluados > 0 ? ((cumple + cumpleParcial * 0.5) / itemsEvaluados) * 100 : 0
+  }
 
   return {
     fileName: file.name,

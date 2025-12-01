@@ -131,9 +131,9 @@ export default function AuditoresPage() {
               icon={Calendar}
             />
             <StatsCard
-              title="Cumplimiento Promedio"
+              title="Porcentaje de Cumplimiento"
               value={`${Math.round(auditorStats.cumplimiento)}%`}
-              description="En todas sus auditorías"
+              description="Promedio de todas sus auditorías"
               icon={TrendingUp}
             />
             <StatsCard

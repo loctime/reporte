@@ -6,6 +6,8 @@ export interface ColumnConfig {
   noAplica: number
   observacion: number | null
   headerRowIndex: number
+  cumplimientoCol: number | null
+  cumplimientoRow: number | null
 }
 
 const CONFIG_STORAGE_KEY = "excel-column-config"

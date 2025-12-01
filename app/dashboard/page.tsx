@@ -63,9 +63,9 @@ export default function DashboardPage() {
               icon={FileText}
             />
             <StatsCard
-              title="Cumplimiento Promedio"
+              title="Porcentaje de Cumplimiento"
               value={`${Math.round(stats.cumplimientoPromedio)}%`}
-              description="Consolidado general"
+              description="Promedio de todas las auditorías"
               icon={TrendingUp}
             />
             <StatsCard

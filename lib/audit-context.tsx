@@ -41,14 +41,19 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     const noAplica = allItems.filter((i) => i.estado === "No aplica").length
 
     const itemsEvaluados = totalItems - noAplica
-    const cumplimientoPromedio = itemsEvaluados > 0 ? ((cumple + cumpleParcial * 0.5) / itemsEvaluados) * 100 : 0
+    
+    // Cumplimiento promedio: promedio de los porcentajes de cumplimiento de cada auditoría (viene del Excel)
+    const cumplimientoPromedio =
+      auditFiles.length > 0
+        ? auditFiles.reduce((sum, file) => sum + file.cumplimiento, 0) / auditFiles.length
+        : 0
 
     // Por operacion
     const porOperacion: Record<string, { total: number; cumplimiento: number; auditorias: number }> = {}
     auditFiles.forEach((file) => {
       const itemsOp = file.items.filter((i) => i.estado !== "No aplica")
-      const cumpleOp = file.items.filter((i) => i.estado === "Cumple" || i.estado === "Cumple parcialmente").length
-      const cumplimientoOp = itemsOp.length > 0 ? (cumpleOp / itemsOp.length) * 100 : 0
+      // Usar el cumplimiento del Excel en lugar de calcularlo
+      const cumplimientoOp = file.cumplimiento
 
       if (!porOperacion[file.operacion]) {
         porOperacion[file.operacion] = { total: 0, cumplimiento: 0, auditorias: 0 }
@@ -64,8 +69,8 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     const porAuditor: Record<string, { total: number; cumplimiento: number; auditorias: number }> = {}
     auditFiles.forEach((file) => {
       const itemsAud = file.items.filter((i) => i.estado !== "No aplica")
-      const cumpleAud = file.items.filter((i) => i.estado === "Cumple" || i.estado === "Cumple parcialmente").length
-      const cumplimientoAud = itemsAud.length > 0 ? (cumpleAud / itemsAud.length) * 100 : 0
+      // Usar el cumplimiento del Excel en lugar de calcularlo
+      const cumplimientoAud = file.cumplimiento
 
       if (!porAuditor[file.auditor]) {
         porAuditor[file.auditor] = { total: 0, cumplimiento: 0, auditorias: 0 }
@@ -82,8 +87,8 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     auditFiles.forEach((file) => {
       const mes = `${file.fecha.getFullYear()}-${String(file.fecha.getMonth() + 1).padStart(2, "0")}`
       const itemsMes = file.items.filter((i) => i.estado !== "No aplica")
-      const cumpleMes = file.items.filter((i) => i.estado === "Cumple" || i.estado === "Cumple parcialmente").length
-      const cumplimientoMes = itemsMes.length > 0 ? (cumpleMes / itemsMes.length) * 100 : 0
+      // Usar el cumplimiento del Excel en lugar de calcularlo
+      const cumplimientoMes = file.cumplimiento
 
       if (!porMes[mes]) {
         porMes[mes] = { total: 0, cumplimiento: 0, auditorias: 0 }
