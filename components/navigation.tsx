@@ -3,11 +3,12 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { FileUp, LayoutDashboard, Building2, User, Table, Search } from "lucide-react"
+import { FileUp, LayoutDashboard, Building2, User, Table, Search, BarChart3 } from "lucide-react"
 
 const navItems = [
   { href: "/", label: "Inicio", icon: LayoutDashboard },
   { href: "/upload", label: "Cargar Auditorías", icon: FileUp },
+  { href: "/resumen", label: "Resumen Completo", icon: BarChart3 },
   { href: "/dashboard", label: "Dashboard General", icon: LayoutDashboard },
   { href: "/operaciones", label: "Por Operación", icon: Building2 },
   { href: "/auditores", label: "Por Auditor", icon: User },

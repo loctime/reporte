@@ -40,6 +40,22 @@ const CustomTooltip = ({ active, payload }: any) => {
               {data.cumple} / {data.total}
             </span>
           </div>
+          {data.cumpleParcial > 0 && (
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-muted-foreground">Cumple Parcialmente</span>
+              <span className="text-sm font-semibold tabular-nums">
+                {data.cumpleParcial}
+              </span>
+            </div>
+          )}
+          {data.noCumple > 0 && (
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-muted-foreground">No Cumple</span>
+              <span className="text-sm font-semibold tabular-nums text-destructive">
+                {data.noCumple}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     )
@@ -116,28 +132,55 @@ export default function OperacionesPage() {
     porMesOperacion[mes].auditorias += 1
   })
 
-  // Categorías para radar
-  const categorias: Record<string, { cumple: number; total: number }> = {}
+  // Categorías con cálculo correcto de cumplimiento
+  const categorias: Record<string, { 
+    cumple: number
+    cumpleParcial: number
+    noCumple: number
+    total: number
+  }> = {}
+  
   itemsOperacion.forEach((item) => {
     if (!categorias[item.categoria]) {
-      categorias[item.categoria] = { cumple: 0, total: 0 }
+      categorias[item.categoria] = { 
+        cumple: 0, 
+        cumpleParcial: 0,
+        noCumple: 0,
+        total: 0 
+      }
     }
+    
     if (item.estado !== "No aplica") {
       categorias[item.categoria].total += 1
-      if (item.estado === "Cumple" || item.estado === "Cumple parcialmente") {
+      
+      if (item.estado === "Cumple") {
         categorias[item.categoria].cumple += 1
+      } else if (item.estado === "Cumple parcialmente") {
+        categorias[item.categoria].cumpleParcial += 1
+      } else if (item.estado === "No cumple") {
+        categorias[item.categoria].noCumple += 1
       }
     }
   })
 
   const categoriasData = Object.entries(categorias)
-    .map(([categoria, data]) => ({
-      categoria: categoria,
-      categoriaCorta: categoria.length > 40 ? categoria.substring(0, 40) + "..." : categoria,
-      cumplimiento: data.total > 0 ? Math.round((data.cumple / data.total) * 100 * 10) / 10 : 0,
-      cumple: data.cumple,
-      total: data.total,
-    }))
+    .map(([categoria, data]) => {
+      // Calcular cumplimiento correctamente: Cumple=1.0, Cumple Parcial=0.5, No Cumple=0.0
+      const puntosCumplimiento = (data.cumple * 1.0) + (data.cumpleParcial * 0.5)
+      const cumplimiento = data.total > 0 
+        ? (puntosCumplimiento / data.total) * 100 
+        : 0
+      
+      return {
+        categoria: categoria,
+        categoriaCorta: categoria.length > 40 ? categoria.substring(0, 40) + "..." : categoria,
+        cumplimiento: Math.round(cumplimiento * 10) / 10,
+        cumple: data.cumple,
+        cumpleParcial: data.cumpleParcial,
+        noCumple: data.noCumple,
+        total: data.total,
+      }
+    })
     .sort((a, b) => b.cumplimiento - a.cumplimiento)
     .slice(0, 10)
 
