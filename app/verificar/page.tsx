@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { useDropzone } from "react-dropzone"
 import { Navigation } from "@/components/navigation"
 import { Button } from "@/components/ui/button"
@@ -40,7 +40,12 @@ export default function VerificarPage() {
   const [debugData, setDebugData] = useState<ExcelDebugData | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [showConfigurator, setShowConfigurator] = useState(false)
-  const [savedConfig, setSavedConfig] = useState<ColumnConfig | null>(loadColumnConfig())
+  const [savedConfig, setSavedConfig] = useState<ColumnConfig | null>(null)
+
+  // Cargar configuración solo en el cliente para evitar errores de hidratación
+  useEffect(() => {
+    setSavedConfig(loadColumnConfig())
+  }, [])
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return

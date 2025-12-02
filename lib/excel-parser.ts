@@ -72,6 +72,20 @@ export async function parseExcelFile(file: File): Promise<AuditFile> {
     }
   }
 
+  // Si no se encontró la fecha en el formato estándar, buscar en fila 5, columna K (índice 4, columna 10)
+  if (fecha.getTime() === new Date().getTime() && jsonData.length > 4) {
+    const row5 = jsonData[4] // Fila 5 (índice 4)
+    if (row5 && row5.length > 10) {
+      const fechaStr = String(row5[10] || "").trim() // Columna K (índice 10)
+      if (fechaStr && fechaStr.length > 0) {
+        const parsedFecha = parseFecha(fechaStr)
+        if (parsedFecha.getFullYear() > 2000 && parsedFecha.getFullYear() < 2100) {
+          fecha = parsedFecha
+        }
+      }
+    }
+  }
+
   // Verificar si hay configuración guardada
   const savedConfig = loadColumnConfig()
   
@@ -441,6 +455,12 @@ function parseFecha(fechaStr: string): Date {
   // Limpiar el string de fecha
   let cleaned = fechaStr.trim()
   
+  // Intentar parsear formato de texto en español: "20 de agosto del 2025" o "20 de agosto de 2025"
+  const fechaEspanol = parseFechaEspanol(cleaned)
+  if (fechaEspanol) {
+    return fechaEspanol
+  }
+  
   // Si parece ser un número serial de Excel (muy grande), intentar convertirlo
   const numValue = Number.parseFloat(cleaned)
   if (!isNaN(numValue) && numValue > 40000 && numValue < 100000) {
@@ -482,6 +502,61 @@ function parseFecha(fechaStr: string): Date {
   }
   
   return new Date()
+}
+
+function parseFechaEspanol(fechaStr: string): Date | null {
+  // Normalizar el string: convertir a minúsculas y limpiar espacios extra
+  const normalized = fechaStr.toLowerCase().trim().replace(/\s+/g, " ")
+  
+  // Mapeo de meses en español
+  const meses: Record<string, number> = {
+    "enero": 0,
+    "febrero": 1,
+    "marzo": 2,
+    "abril": 3,
+    "mayo": 4,
+    "junio": 5,
+    "julio": 6,
+    "agosto": 7,
+    "septiembre": 8,
+    "octubre": 9,
+    "noviembre": 10,
+    "diciembre": 11,
+  }
+  
+  // Patrones comunes:
+  // "20 de agosto del 2025"
+  // "20 de agosto de 2025"
+  // "20 agosto 2025"
+  // "20/agosto/2025"
+  
+  // Buscar patrón: número + "de" + mes + "de"/"del" + año
+  const patron1 = /(\d{1,2})\s+de\s+(\w+)\s+(?:del\s+|de\s+)?(\d{4})/
+  const match1 = normalized.match(patron1)
+  if (match1) {
+    const dia = Number.parseInt(match1[1], 10)
+    const mesNombre = match1[2]
+    const año = Number.parseInt(match1[3], 10)
+    
+    if (meses[mesNombre] !== undefined && dia >= 1 && dia <= 31 && año > 2000 && año < 2100) {
+      return new Date(año, meses[mesNombre], dia)
+    }
+  }
+  
+  // Buscar patrón: número + mes + año (sin "de")
+  const patron2 = /(\d{1,2})\s+(\w+)\s+(\d{4})/
+  const match2 = normalized.match(patron2)
+  if (match2) {
+    const dia = Number.parseInt(match2[1], 10)
+    const mesNombre = match2[2]
+    const año = Number.parseInt(match2[3], 10)
+    
+    if (meses[mesNombre] !== undefined && dia >= 1 && dia <= 31 && año > 2000 && año < 2100) {
+      return new Date(año, meses[mesNombre], dia)
+    }
+  }
+  
+  return null
 }
 
 function findPregunta(row: any[], preferredCol?: number | null): string {
