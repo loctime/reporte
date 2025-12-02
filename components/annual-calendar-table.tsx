@@ -4,12 +4,14 @@ import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Calendar, FileSpreadsheet } from "lucide-react"
+import { Calendar, FileSpreadsheet, Download } from "lucide-react"
 import { cn, formatDate } from "@/lib/utils"
 import type { AuditFile } from "@/lib/types"
 import { useAudit } from "@/lib/audit-context"
 import { loadColumnConfig } from "@/lib/column-config"
 import * as XLSX from "xlsx"
+import { exportCalendarToExcel } from "@/lib/export-utils"
+import { Button } from "@/components/ui/button"
 
 interface AnnualCalendarTableProps {
   auditFiles: AuditFile[]
@@ -225,18 +227,30 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
     return row
   })
 
+  const handleExportToExcel = () => {
+    exportCalendarToExcel(tableData, currentYear, monthNames)
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-            <Calendar className="h-4 w-4 text-primary" />
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Calendar className="h-4 w-4 text-primary" />
+              </div>
+              Calendario Anual de Cumplimiento
+            </CardTitle>
+            <CardDescription>
+              Porcentajes mensuales de cumplimiento por operación - Año {currentYear}
+            </CardDescription>
           </div>
-          Calendario Anual de Cumplimiento
-        </CardTitle>
-        <CardDescription>
-          Porcentajes mensuales de cumplimiento por operación - Año {currentYear}
-        </CardDescription>
+          <Button onClick={handleExportToExcel} variant="outline" className="gap-2">
+            <Download className="h-4 w-4" />
+            Exportar a Excel
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {/* Referencias */}
