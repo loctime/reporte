@@ -41,6 +41,8 @@ const getComplianceLabel = (percentage: number | null): string => {
 interface PreviewData {
   c5: string | number | null
   k5: string | number | null
+  c6: string | number | null
+  k6: string | number | null
   fileName: string
 }
 
@@ -95,6 +97,8 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
       // Determinar qué celdas leer (usar configuración o valores por defecto)
       let operacionCell = "C5" // Por defecto
       let fechaCell = "K5" // Por defecto
+      const responsableCell = "C6" // Por defecto
+      const auditorCell = "K6" // Por defecto
       
       if (config?.operacionCell) {
         // Convertir índices base 0 a notación Excel (ej: fila 4, col 2 = C5)
@@ -110,6 +114,8 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
       // Extraer las celdas configuradas (o por defecto)
       const operacion = firstSheet[operacionCell] ? firstSheet[operacionCell].v : null
       let fecha: string | number | null = null
+      const responsable = firstSheet[responsableCell] ? firstSheet[responsableCell].v : null
+      const auditor = firstSheet[auditorCell] ? firstSheet[auditorCell].v : null
       
       const fechaCellData = firstSheet[fechaCell]
       if (fechaCellData) {
@@ -121,6 +127,8 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
       setPreviewData({
         c5: operacion,
         k5: fecha,
+        c6: responsable,
+        k6: auditor,
         fileName: fileToPreview.fileName,
       })
     } catch (error) {
@@ -128,6 +136,8 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
       setPreviewData({
         c5: "Error al leer",
         k5: "Error al leer",
+        c6: "Error al leer",
+        k6: "Error al leer",
         fileName: fileToPreview.fileName,
       })
     } finally {
@@ -232,7 +242,7 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
         {/* Referencias */}
         <div className="mb-6 p-4 rounded-lg bg-muted/50 border border-border">
           <h3 className="text-sm font-semibold mb-3">Referencias FR 42 - Control de Calidad en Campo</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div className="flex items-center gap-2">
               <div className="h-5 w-5 rounded border-2 bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700" />
               <div>
@@ -261,6 +271,14 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
                 <p className="text-xs text-muted-foreground">Sin datos</p>
               </div>
             </div>
+            <div className="flex items-center gap-2">
+              <div className="h-5 w-5 rounded border-2 bg-muted/30 border-border" />
+              <div>
+                <p className="text-xs font-semibold">En cada celda:</p>
+                <p className="text-xs text-muted-foreground">Cumplimiento general arriba</p>
+                <p className="text-xs text-muted-foreground">Verde: Cumple | Amarillo: Parcial | Rojo: No Cumple | Gris: No Aplica</p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -269,9 +287,9 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="sticky left-0 z-10 bg-card min-w-[200px] font-semibold">OPERACIÓN</TableHead>
+                <TableHead className="sticky left-0 z-10 bg-card min-w-[250px] font-semibold text-base">OPERACIÓN</TableHead>
                 {monthNames.map((month) => (
-                  <TableHead key={month} className="text-center min-w-[70px] font-semibold">
+                  <TableHead key={month} className="text-center min-w-[140px] font-semibold text-base">
                     {month}
                   </TableHead>
                 ))}
@@ -280,18 +298,19 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
             <TableBody>
               {tableData.map((row, rowIndex) => (
                 <TableRow key={rowIndex}>
-                  <TableCell className="sticky left-0 z-10 bg-card font-medium">
+                  <TableCell className="sticky left-0 z-10 bg-card font-medium text-base py-4">
                     {row.operacion}
                   </TableCell>
                   {row.meses.map((porcentaje, monthIndex) => {
                     const monthFiles = row.monthFiles[monthIndex]
                     const hasFile = monthFiles !== null && monthFiles.length > 0
+                    const file = hasFile ? monthFiles[0] : null
                     return (
                       <TableCell
                         key={monthIndex}
                         onClick={() => hasFile && handleCellClick(row.operacion, monthIndex, monthFiles)}
                         className={cn(
-                          "text-center border-2 p-2",
+                          "text-center border-2 p-4 min-h-[120px]",
                           getComplianceColor(porcentaje),
                           porcentaje !== null && "font-mono",
                           hasFile && "cursor-pointer hover:opacity-80 transition-opacity"
@@ -299,9 +318,25 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
                         title={hasFile ? "Haz clic para ver vista previa del archivo Excel" : undefined}
                       >
                         {porcentaje !== null ? (
-                          <span className={cn("text-sm font-semibold", getComplianceTextColor(porcentaje))}>
-                            {porcentaje.toFixed(0)}%
-                          </span>
+                          <div className="flex flex-col items-center justify-center gap-2">
+                            <span className={cn("text-lg font-semibold", getComplianceTextColor(porcentaje))}>
+                              {porcentaje.toFixed(0)}%
+                            </span>
+                            {file && (
+                              <>
+                                {file.responsable && (
+                                  <div className="text-xs text-muted-foreground mt-1">
+                                    <span className="font-semibold">Resp:</span> {file.responsable}
+                                  </div>
+                                )}
+                                {file.auditor && (
+                                  <div className="text-xs text-muted-foreground">
+                                    <span className="font-semibold">Aud:</span> {file.auditor}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-muted-foreground/50 text-xs">-</span>
                         )}
@@ -351,6 +386,18 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
                   <span className="font-semibold text-sm">Fecha (K5):</span>
                   <span className="text-sm font-mono">
                     {previewData.k5 !== null ? String(previewData.k5) : "Vacía"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border">
+                  <span className="font-semibold text-sm">Responsable (C6):</span>
+                  <span className="text-sm text-right max-w-[60%] break-words">
+                    {previewData.c6 !== null ? String(previewData.c6) : "Vacía"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border">
+                  <span className="font-semibold text-sm">Auditor (K6):</span>
+                  <span className="text-sm text-right max-w-[60%] break-words">
+                    {previewData.k6 !== null ? String(previewData.k6) : "Vacía"}
                   </span>
                 </div>
               </div>

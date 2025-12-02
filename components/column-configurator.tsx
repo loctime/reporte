@@ -15,7 +15,7 @@ interface ColumnConfiguratorProps {
   onSkip: () => void
 }
 
-type ConfigStep = "pregunta" | "cumple" | "cumpleParcial" | "noCumple" | "noAplica" | "observacion" | "cumplimiento" | "totalItems" | "cumpleCell" | "cumpleParcialCell" | "noCumpleCell" | "noAplicaCell" | "operacionCell" | "fechaCell" | "complete"
+type ConfigStep = "pregunta" | "cumple" | "cumpleParcial" | "noCumple" | "noAplica" | "observacion" | "cumplimiento" | "totalItems" | "cumpleCell" | "cumpleParcialCell" | "noCumpleCell" | "noAplicaCell" | "operacionCell" | "fechaCell" | "cumplePctCell" | "cumpleParcialPctCell" | "noCumplePctCell" | "noAplicaPctCell" | "complete"
 
 const stepLabels: Record<ConfigStep, string> = {
   pregunta: "Columna de Preguntas",
@@ -32,6 +32,10 @@ const stepLabels: Record<ConfigStep, string> = {
   noAplicaCell: "Celda de Cantidad NO APLICA",
   operacionCell: "Celda de Operación (para vista previa)",
   fechaCell: "Celda de Fecha (para vista previa)",
+  cumplePctCell: "Celda de Porcentaje CUMPLE (C13 por defecto)",
+  cumpleParcialPctCell: "Celda de Porcentaje CUMPLE PARCIAL (D13 por defecto)",
+  noCumplePctCell: "Celda de Porcentaje NO CUMPLE (E13 por defecto)",
+  noAplicaPctCell: "Celda de Porcentaje NO APLICA (F13 por defecto)",
   complete: "Configuración Completa",
 }
 
@@ -60,6 +64,10 @@ export function ColumnConfigurator({
       noAplicaCell: null,
       operacionCell: null,
       fechaCell: null,
+      cumplePctCell: null,
+      cumpleParcialPctCell: null,
+      noCumplePctCell: null,
+      noAplicaPctCell: null,
     }
   })
 
@@ -106,6 +114,18 @@ export function ColumnConfigurator({
       setCurrentStep("fechaCell")
     } else if (currentStep === "fechaCell") {
       setConfig({ ...config, fechaCell: { row: rowIndex, col: colIndex } })
+      setCurrentStep("cumplePctCell")
+    } else if (currentStep === "cumplePctCell") {
+      setConfig({ ...config, cumplePctCell: { row: rowIndex, col: colIndex } })
+      setCurrentStep("cumpleParcialPctCell")
+    } else if (currentStep === "cumpleParcialPctCell") {
+      setConfig({ ...config, cumpleParcialPctCell: { row: rowIndex, col: colIndex } })
+      setCurrentStep("noCumplePctCell")
+    } else if (currentStep === "noCumplePctCell") {
+      setConfig({ ...config, noCumplePctCell: { row: rowIndex, col: colIndex } })
+      setCurrentStep("noAplicaPctCell")
+    } else if (currentStep === "noAplicaPctCell") {
+      setConfig({ ...config, noAplicaPctCell: { row: rowIndex, col: colIndex } })
       setCurrentStep("complete")
     } else {
       // Para pasos de columnas, solo necesitamos la columna
@@ -170,6 +190,18 @@ export function ColumnConfigurator({
       operacionCell: null,
       fechaCell: null,
     })
+    setCurrentStep("cumplePctCell")
+  }
+
+  const handleSkipPorcentajes = () => {
+    // Saltar configuración de porcentajes (usar valores por defecto C13, D13, E13, F13)
+    setConfig({
+      ...config,
+      cumplePctCell: null,
+      cumpleParcialPctCell: null,
+      noCumplePctCell: null,
+      noAplicaPctCell: null,
+    })
     setCurrentStep("complete")
   }
 
@@ -200,6 +232,10 @@ export function ColumnConfigurator({
         noAplicaCell: config.noAplicaCell ?? null,
         operacionCell: config.operacionCell ?? null,
         fechaCell: config.fechaCell ?? null,
+        cumplePctCell: config.cumplePctCell ?? null,
+        cumpleParcialPctCell: config.cumpleParcialPctCell ?? null,
+        noCumplePctCell: config.noCumplePctCell ?? null,
+        noAplicaPctCell: config.noAplicaPctCell ?? null,
       }
       saveColumnConfig(finalConfig)
       onConfigComplete(finalConfig)
@@ -219,6 +255,10 @@ export function ColumnConfigurator({
       noAplicaCell: null,
       operacionCell: null,
       fechaCell: null,
+      cumplePctCell: null,
+      cumpleParcialPctCell: null,
+      noCumplePctCell: null,
+      noAplicaPctCell: null,
     })
     setCurrentStep("pregunta")
   }
@@ -339,6 +379,30 @@ export function ColumnConfigurator({
                 <p className="font-semibold">Fila {config.fechaCell.row + 1}, Col {config.fechaCell.col + 1}</p>
               </div>
             )}
+            {config.cumplePctCell && (
+              <div className="p-3 border rounded-lg">
+                <p className="text-sm text-muted-foreground">% Cumple</p>
+                <p className="font-semibold">Fila {config.cumplePctCell.row + 1}, Col {config.cumplePctCell.col + 1}</p>
+              </div>
+            )}
+            {config.cumpleParcialPctCell && (
+              <div className="p-3 border rounded-lg">
+                <p className="text-sm text-muted-foreground">% Cumple Parcial</p>
+                <p className="font-semibold">Fila {config.cumpleParcialPctCell.row + 1}, Col {config.cumpleParcialPctCell.col + 1}</p>
+              </div>
+            )}
+            {config.noCumplePctCell && (
+              <div className="p-3 border rounded-lg">
+                <p className="text-sm text-muted-foreground">% No Cumple</p>
+                <p className="font-semibold">Fila {config.noCumplePctCell.row + 1}, Col {config.noCumplePctCell.col + 1}</p>
+              </div>
+            )}
+            {config.noAplicaPctCell && (
+              <div className="p-3 border rounded-lg">
+                <p className="text-sm text-muted-foreground">% No Aplica</p>
+                <p className="font-semibold">Fila {config.noAplicaPctCell.row + 1}, Col {config.noAplicaPctCell.col + 1}</p>
+              </div>
+            )}
           </div>
           <div className="flex gap-2">
             <Button onClick={handleComplete} className="flex-1">
@@ -365,7 +429,7 @@ export function ColumnConfigurator({
       <CardContent className="space-y-4">
         <div className="p-4 bg-primary/10 border border-primary/20 rounded-lg">
           <p className="font-semibold mb-2">
-            Paso {currentStep === "pregunta" ? 1 : currentStep === "cumple" ? 2 : currentStep === "cumpleParcial" ? 3 : currentStep === "noCumple" ? 4 : currentStep === "noAplica" ? 5 : currentStep === "observacion" ? 6 : currentStep === "cumplimiento" ? 7 : currentStep === "totalItems" ? 8 : currentStep === "cumpleCell" ? 9 : currentStep === "cumpleParcialCell" ? 10 : currentStep === "noCumpleCell" ? 11 : currentStep === "noAplicaCell" ? 12 : currentStep === "operacionCell" ? 13 : currentStep === "fechaCell" ? 14 : 15}:
+            Paso {currentStep === "pregunta" ? 1 : currentStep === "cumple" ? 2 : currentStep === "cumpleParcial" ? 3 : currentStep === "noCumple" ? 4 : currentStep === "noAplica" ? 5 : currentStep === "observacion" ? 6 : currentStep === "cumplimiento" ? 7 : currentStep === "totalItems" ? 8 : currentStep === "cumpleCell" ? 9 : currentStep === "cumpleParcialCell" ? 10 : currentStep === "noCumpleCell" ? 11 : currentStep === "noAplicaCell" ? 12 : currentStep === "operacionCell" ? 13 : currentStep === "fechaCell" ? 14 : currentStep === "cumplePctCell" ? 15 : currentStep === "cumpleParcialPctCell" ? 16 : currentStep === "noCumplePctCell" ? 17 : currentStep === "noAplicaPctCell" ? 18 : 19}:
             {stepLabels[currentStep]}
           </p>
           <p className="text-sm text-muted-foreground">
@@ -373,8 +437,8 @@ export function ColumnConfigurator({
               ? "Haz clic en la columna de observaciones o salta este paso si no existe"
               : currentStep === "cumplimiento"
                 ? "Haz clic en la columna donde está el porcentaje de cumplimiento (ej: % DE CUMPLIMIENTO)"
-                : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell"
-                  ? "Haz clic en la CELDA específica donde está este valor en el Excel (ej: fila 5, columna C para Operación)"
+                : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell"
+                  ? "Haz clic en la CELDA específica donde está este valor en el Excel (ej: fila 13, columna C para % Cumple)"
                   : "Haz clic en la columna correspondiente en la fila de encabezados"}
           </p>
         </div>
@@ -385,7 +449,7 @@ export function ColumnConfigurator({
               <div className="bg-muted p-2 text-sm font-medium">
                 {currentStep === "cumplimiento" 
                   ? `Filas ${headerRowIndex + 1} y ${headerRowIndex + 2} - Buscar columna de Cumplimiento`
-                  : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell"
+                  : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell"
                     ? `Selecciona la CELDA específica (fila y columna) - Busca en las primeras 15 filas`
                     : `Fila ${headerRowIndex + 1} - Encabezados`}
               </div>
@@ -442,7 +506,7 @@ export function ColumnConfigurator({
                     </div>
                   ))}
                 </div>
-              ) : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" ? (
+              ) : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell" ? (
                 // Mostrar múltiples filas para seleccionar celdas de estadísticas
                 <div className="space-y-2 p-2 max-h-[400px] overflow-y-auto">
                   {Array.from({ length: Math.min(15, rawData.length) }).map((_, rowIndex) => (
@@ -487,6 +551,18 @@ export function ColumnConfigurator({
                         } else if (currentStep === "fechaCell" && config.fechaCell?.row === rowIndex && config.fechaCell?.col === colIndex) {
                           isSelected = true
                           label = "Fecha"
+                        } else if (currentStep === "cumplePctCell" && config.cumplePctCell?.row === rowIndex && config.cumplePctCell?.col === colIndex) {
+                          isSelected = true
+                          label = "% Cumple"
+                        } else if (currentStep === "cumpleParcialPctCell" && config.cumpleParcialPctCell?.row === rowIndex && config.cumpleParcialPctCell?.col === colIndex) {
+                          isSelected = true
+                          label = "% Cumple Parcial"
+                        } else if (currentStep === "noCumplePctCell" && config.noCumplePctCell?.row === rowIndex && config.noCumplePctCell?.col === colIndex) {
+                          isSelected = true
+                          label = "% No Cumple"
+                        } else if (currentStep === "noAplicaPctCell" && config.noAplicaPctCell?.row === rowIndex && config.noAplicaPctCell?.col === colIndex) {
+                          isSelected = true
+                          label = "% No Aplica"
                         }
 
                         return (
@@ -600,6 +676,14 @@ export function ColumnConfigurator({
           <div className="flex gap-2">
             <Button variant="outline" onClick={handleSkipOperacionFecha} className="flex-1">
               Saltar (Usar valores por defecto: C5 y K5)
+            </Button>
+          </div>
+        )}
+
+        {(currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell") && (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleSkipPorcentajes} className="flex-1">
+              Saltar (Usar valores por defecto: C13, D13, E13, F13)
             </Button>
           </div>
         )}

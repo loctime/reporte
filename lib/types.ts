@@ -30,6 +30,11 @@ export interface AuditFile {
   cumpleParcial: number
   noCumple: number
   noAplica: number
+  // Porcentajes leídos desde Excel (opcionales)
+  cumplePct?: number
+  cumpleParcialPct?: number
+  noCumplePct?: number
+  noAplicaPct?: number
 }
 
 export interface AuditStats {

@@ -17,6 +17,11 @@ export interface ColumnConfig {
   // Celdas de metadatos para vista previa
   operacionCell: { row: number; col: number } | null
   fechaCell: { row: number; col: number } | null
+  // Celdas de porcentajes
+  cumplePctCell: { row: number; col: number } | null
+  cumpleParcialPctCell: { row: number; col: number } | null
+  noCumplePctCell: { row: number; col: number } | null
+  noAplicaPctCell: { row: number; col: number } | null
 }
 
 const CONFIG_STORAGE_KEY = "excel-column-config"

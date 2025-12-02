@@ -132,6 +132,23 @@ export async function parseExcelFile(file: File): Promise<AuditFile> {
       }
     }
   }
+
+  // Leer responsable desde C6 (fila 5, columna 2) por defecto
+  const responsableRow = jsonData[5] // Fila 6 (índice 5)
+  if (responsableRow && responsableRow.length > 2) {
+    const responsableValue = responsableRow[2] // Columna C (índice 2)
+    if (responsableValue !== null && responsableValue !== undefined && responsableValue !== "") {
+      responsable = String(responsableValue).trim()
+    }
+  }
+
+  // Leer auditor desde K6 (fila 5, columna 10) por defecto
+  if (responsableRow && responsableRow.length > 10) {
+    const auditorValue = responsableRow[10] // Columna K (índice 10)
+    if (auditorValue !== null && auditorValue !== undefined && auditorValue !== "") {
+      auditor = String(auditorValue).trim()
+    }
+  }
   
   // Si hay configuración de fechaCell, usarla (REQUERIDA)
   if (savedConfig.fechaCell) {
@@ -379,12 +396,72 @@ export async function parseExcelFile(file: File): Promise<AuditFile> {
     return null
   }
 
+  // Función auxiliar para leer un valor numérico o porcentaje de una celda específica
+  const readCellValueOrPercent = (cell: { row: number; col: number } | null): number | null => {
+    if (!cell) return null
+    if (cell.row >= 0 && cell.row < jsonData.length && jsonData[cell.row]) {
+      const row = jsonData[cell.row]
+      if (cell.col >= 0 && cell.col < row.length) {
+        const cellValue = row[cell.col]
+        if (cellValue !== undefined && cellValue !== null && cellValue !== "") {
+          // Si es un número, puede ser porcentaje (0-100) o decimal (0-1)
+          if (typeof cellValue === "number") {
+            // Si es mayor a 1, asumir que es porcentaje (0-100), sino es decimal (0-1)
+            return cellValue > 1 ? cellValue : cellValue * 100
+          }
+          // Si es string, intentar parsear
+          const strValue = String(cellValue).trim().replace("%", "").replace(",", ".")
+          const numValue = Number.parseFloat(strValue)
+          if (!isNaN(numValue) && numValue >= 0) {
+            return numValue > 1 ? numValue : numValue * 100
+          }
+        }
+      }
+    }
+    return null
+  }
+
   // Leer estadísticas del Excel usando la configuración
   const totalItemsFromExcel = savedConfig?.totalItemsCell ? readCellValue(savedConfig.totalItemsCell) : null
   const cumpleFromExcel = savedConfig?.cumpleCell ? readCellValue(savedConfig.cumpleCell) : null
   const cumpleParcialFromExcel = savedConfig?.cumpleParcialCell ? readCellValue(savedConfig.cumpleParcialCell) : null
   const noCumpleFromExcel = savedConfig?.noCumpleCell ? readCellValue(savedConfig.noCumpleCell) : null
   const noAplicaFromExcel = savedConfig?.noAplicaCell ? readCellValue(savedConfig.noAplicaCell) : null
+
+  // Leer porcentajes desde celdas configuradas (C13, D13, E13, F13 por defecto)
+  // Si no están configuradas, usar valores por defecto: C13 (fila 12, col 2), D13 (fila 12, col 3), etc.
+  let cumplePctFromExcel: number | null = null
+  let cumpleParcialPctFromExcel: number | null = null
+  let noCumplePctFromExcel: number | null = null
+  let noAplicaPctFromExcel: number | null = null
+
+  if (savedConfig?.cumplePctCell) {
+    cumplePctFromExcel = readCellValueOrPercent(savedConfig.cumplePctCell)
+  } else {
+    // Por defecto: C13 (fila 12, columna 2)
+    cumplePctFromExcel = readCellValueOrPercent({ row: 12, col: 2 })
+  }
+
+  if (savedConfig?.cumpleParcialPctCell) {
+    cumpleParcialPctFromExcel = readCellValueOrPercent(savedConfig.cumpleParcialPctCell)
+  } else {
+    // Por defecto: D13 (fila 12, columna 3)
+    cumpleParcialPctFromExcel = readCellValueOrPercent({ row: 12, col: 3 })
+  }
+
+  if (savedConfig?.noCumplePctCell) {
+    noCumplePctFromExcel = readCellValueOrPercent(savedConfig.noCumplePctCell)
+  } else {
+    // Por defecto: E13 (fila 12, columna 4)
+    noCumplePctFromExcel = readCellValueOrPercent({ row: 12, col: 4 })
+  }
+
+  if (savedConfig?.noAplicaPctCell) {
+    noAplicaPctFromExcel = readCellValueOrPercent(savedConfig.noAplicaPctCell)
+  } else {
+    // Por defecto: F13 (fila 12, columna 5)
+    noAplicaPctFromExcel = readCellValueOrPercent({ row: 12, col: 5 })
+  }
 
   // Usar valores del Excel si están configurados, sino calcular desde items parseados
   const totalItems = totalItemsFromExcel !== null ? totalItemsFromExcel : items.length
@@ -418,6 +495,11 @@ export async function parseExcelFile(file: File): Promise<AuditFile> {
     cumpleParcial,
     noCumple,
     noAplica,
+    // Agregar porcentajes si se leyeron desde Excel
+    ...(cumplePctFromExcel !== null && { cumplePct: cumplePctFromExcel }),
+    ...(cumpleParcialPctFromExcel !== null && { cumpleParcialPct: cumpleParcialPctFromExcel }),
+    ...(noCumplePctFromExcel !== null && { noCumplePct: noCumplePctFromExcel }),
+    ...(noAplicaPctFromExcel !== null && { noAplicaPct: noAplicaPctFromExcel }),
   }
 }
 
