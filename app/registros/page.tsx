@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { exportToExcel } from "@/lib/export-utils"
+import { formatDate } from "@/lib/utils"
 import { TableIcon, Download, Search, Filter } from "lucide-react"
 import Link from "next/link"
 import type { AuditStatus } from "@/lib/types"
@@ -238,7 +239,7 @@ export default function RegistrosPage() {
                     ) : (
                       paginatedItems.map((item, index) => (
                         <TableRow key={item.id}>
-                          <TableCell className="text-sm">{item.fecha.toLocaleDateString("es-AR")}</TableCell>
+                          <TableCell className="text-sm">{formatDate(item.fecha)}</TableCell>
                           <TableCell className="max-w-[200px]">
                             <div className="truncate text-sm" title={item.operacion}>
                               {item.operacion}

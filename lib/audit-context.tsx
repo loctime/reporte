@@ -2,29 +2,51 @@
 
 import { createContext, useContext, useState, type ReactNode } from "react"
 import type { AuditFile, AuditItem, AuditStats } from "./types"
+import { parseExcelFile } from "./excel-parser"
+
+interface AuditFileWithBlob extends AuditFile {
+  fileBlob?: Blob
+}
 
 interface AuditContextType {
   auditFiles: AuditFile[]
-  addAuditFiles: (files: AuditFile[]) => void
+  addAuditFiles: (files: AuditFile[], fileBlobs?: Map<string, Blob>) => void
   clearAuditFiles: () => void
   getAllItems: () => AuditItem[]
   getStats: () => AuditStats
   viewMode: "simple" | "advanced"
   toggleViewMode: () => void
+  getFileBlob: (fileName: string) => Blob | null
+  reparseFiles: () => Promise<{ success: number; errors: Array<{ fileName: string; error: string }> }>
 }
 
 const AuditContext = createContext<AuditContextType | undefined>(undefined)
 
 export function AuditProvider({ children }: { children: ReactNode }) {
   const [auditFiles, setAuditFiles] = useState<AuditFile[]>([])
+  const [fileBlobs, setFileBlobs] = useState<Map<string, Blob>>(new Map())
   const [viewMode, setViewMode] = useState<"simple" | "advanced">("simple")
 
-  const addAuditFiles = (files: AuditFile[]) => {
+  const addAuditFiles = (files: AuditFile[], blobs?: Map<string, Blob>) => {
     setAuditFiles((prev) => [...prev, ...files])
+    if (blobs) {
+      setFileBlobs((prev) => {
+        const newMap = new Map(prev)
+        blobs.forEach((blob, fileName) => {
+          newMap.set(fileName, blob)
+        })
+        return newMap
+      })
+    }
+  }
+
+  const getFileBlob = (fileName: string): Blob | null => {
+    return fileBlobs.get(fileName) || null
   }
 
   const clearAuditFiles = () => {
     setAuditFiles([])
+    setFileBlobs(new Map())
   }
 
   const getAllItems = (): AuditItem[] => {
@@ -140,6 +162,48 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     setViewMode((prev) => (prev === "simple" ? "advanced" : "simple"))
   }
 
+  const reparseFiles = async (): Promise<{ success: number; errors: Array<{ fileName: string; error: string }> }> => {
+    const errors: Array<{ fileName: string; error: string }> = []
+    const newFiles: AuditFile[] = []
+    const newBlobs = new Map<string, Blob>()
+
+    // Re-parsear cada archivo existente
+    for (const file of auditFiles) {
+      const blob = fileBlobs.get(file.fileName)
+      if (!blob) {
+        errors.push({
+          fileName: file.fileName,
+          error: "No se encontró el archivo original para re-parsear",
+        })
+        continue
+      }
+
+      try {
+        // Convertir blob a File para re-parsear
+        const fileObj = new File([blob], file.fileName, { type: blob.type })
+        const parsedFile = await parseExcelFile(fileObj)
+        newFiles.push(parsedFile)
+        newBlobs.set(parsedFile.fileName, blob)
+      } catch (error) {
+        errors.push({
+          fileName: file.fileName,
+          error: error instanceof Error ? error.message : "Error desconocido al re-parsear",
+        })
+      }
+    }
+
+    // Si hay archivos re-parseados exitosamente, actualizar el estado
+    if (newFiles.length > 0) {
+      setAuditFiles(newFiles)
+      setFileBlobs(newBlobs)
+    }
+
+    return {
+      success: newFiles.length,
+      errors,
+    }
+  }
+
   return (
     <AuditContext.Provider
       value={{
@@ -150,6 +214,8 @@ export function AuditProvider({ children }: { children: ReactNode }) {
         getStats,
         viewMode,
         toggleViewMode,
+        getFileBlob,
+        reparseFiles,
       }}
     >
       {children}

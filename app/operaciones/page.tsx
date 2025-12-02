@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Building2, TrendingUp, AlertTriangle, CheckCircle2, Calendar } from "lucide-react"
 import Link from "next/link"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts"
+import { formatDate } from "@/lib/utils"
 
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
@@ -386,7 +387,7 @@ export default function OperacionesPage() {
                   <TableBody>
                     {auditoriasOperacion.map((audit, index) => (
                       <TableRow key={index}>
-                        <TableCell>{audit.fecha.toLocaleDateString("es-AR")}</TableCell>
+                        <TableCell>{formatDate(audit.fecha)}</TableCell>
                         <TableCell>{audit.auditor}</TableCell>
                         <TableCell>{audit.responsable}</TableCell>
                         <TableCell className="text-right">{audit.totalItems}</TableCell>

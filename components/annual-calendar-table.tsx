@@ -1,10 +1,15 @@
 "use client"
 
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Calendar } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Calendar, FileSpreadsheet } from "lucide-react"
+import { cn, formatDate } from "@/lib/utils"
 import type { AuditFile } from "@/lib/types"
+import { useAudit } from "@/lib/audit-context"
+import { loadColumnConfig } from "@/lib/column-config"
+import * as XLSX from "xlsx"
 
 interface AnnualCalendarTableProps {
   auditFiles: AuditFile[]
@@ -33,7 +38,18 @@ const getComplianceLabel = (percentage: number | null): string => {
   return "No Cumple"
 }
 
+interface PreviewData {
+  c5: string | number | null
+  k5: string | number | null
+  fileName: string
+}
+
 export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
+  const { getFileBlob } = useAudit()
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [previewData, setPreviewData] = useState<PreviewData | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  
   // Obtener todas las operaciones únicas
   const operaciones = [...new Set(auditFiles.map((f) => f.operacion))].sort()
 
@@ -41,10 +57,88 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
   const years = [...new Set(auditFiles.map((f) => f.fecha.getFullYear()))].sort()
   const currentYear = years.length > 0 ? years[years.length - 1] : new Date().getFullYear()
 
-  // Crear estructura de datos: operación -> mes -> cumplimiento
+  // Función para mostrar vista previa del archivo Excel
+  const handleCellClick = async (operacion: string, monthIndex: number, files: AuditFile[] | null) => {
+    if (!files || files.length === 0) return
+    
+    // Si hay múltiples archivos, usar el primero (el más reciente)
+    const fileToPreview = files[0]
+    const blob = getFileBlob(fileToPreview.fileName)
+    
+    if (!blob) {
+      return
+    }
+
+    setIsLoading(true)
+    setIsPreviewOpen(true)
+
+    try {
+      // Leer el archivo Excel
+      const arrayBuffer = await blob.arrayBuffer()
+      const workbook = XLSX.read(arrayBuffer, { type: "array" })
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
+
+      // Obtener configuración de columnas
+      const config = loadColumnConfig()
+      
+      // Función para convertir índice de columna a notación Excel (0=A, 1=B, ..., 25=Z, 26=AA, etc.)
+      const colIndexToExcel = (colIndex: number): string => {
+        let result = ""
+        let num = colIndex
+        while (num >= 0) {
+          result = String.fromCharCode(65 + (num % 26)) + result
+          num = Math.floor(num / 26) - 1
+        }
+        return result
+      }
+      
+      // Determinar qué celdas leer (usar configuración o valores por defecto)
+      let operacionCell = "C5" // Por defecto
+      let fechaCell = "K5" // Por defecto
+      
+      if (config?.operacionCell) {
+        // Convertir índices base 0 a notación Excel (ej: fila 4, col 2 = C5)
+        const colLetter = colIndexToExcel(config.operacionCell.col)
+        operacionCell = `${colLetter}${config.operacionCell.row + 1}`
+      }
+      
+      if (config?.fechaCell) {
+        const colLetter = colIndexToExcel(config.fechaCell.col)
+        fechaCell = `${colLetter}${config.fechaCell.row + 1}`
+      }
+
+      // Extraer las celdas configuradas (o por defecto)
+      const operacion = firstSheet[operacionCell] ? firstSheet[operacionCell].v : null
+      let fecha: string | number | null = null
+      
+      const fechaCellData = firstSheet[fechaCell]
+      if (fechaCellData) {
+        // Siempre usar el valor crudo (v) para evitar problemas de formato
+        // El valor formateado (w) puede estar en diferentes formatos según la configuración de Excel
+        fecha = formatDate(fechaCellData.v)
+      }
+
+      setPreviewData({
+        c5: operacion,
+        k5: fecha,
+        fileName: fileToPreview.fileName,
+      })
+    } catch (error) {
+      console.error("Error al leer el archivo Excel:", error)
+      setPreviewData({
+        c5: "Error al leer",
+        k5: "Error al leer",
+        fileName: fileToPreview.fileName,
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Crear estructura de datos: operación -> mes -> cumplimiento y archivos
   const dataByOperacionMes: Record<
     string,
-    Record<string, { cumplimiento: number; auditorias: number }>
+    Record<string, { cumplimiento: number; auditorias: number; files: AuditFile[] }>
   > = {}
 
   // Inicializar todas las operaciones
@@ -53,11 +147,20 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
   })
 
   // Procesar cada auditoría
-  auditFiles.forEach((file) => {
+  // Ordenar por fecha para asegurar consistencia
+  const sortedFiles = [...auditFiles].sort((a, b) => a.fecha.getTime() - b.fecha.getTime())
+  
+  sortedFiles.forEach((file) => {
     const operacion = file.operacion
     const year = file.fecha.getFullYear()
     const month = file.fecha.getMonth() // 0-11
     const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`
+    
+    // Validar que la fecha sea válida
+    if (isNaN(file.fecha.getTime())) {
+      console.warn(`Fecha inválida en archivo: ${file.fileName}`, file.fecha)
+      return
+    }
 
     if (!dataByOperacionMes[operacion]) {
       dataByOperacionMes[operacion] = {}
@@ -68,15 +171,17 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
       dataByOperacionMes[operacion][monthKey] = {
         cumplimiento: file.cumplimiento,
         auditorias: 1,
+        files: [file],
       }
     } else {
-      // Promediar el cumplimiento
+      // Promediar el cumplimiento y agregar el archivo
       const existing = dataByOperacionMes[operacion][monthKey]
       const totalAuditorias = existing.auditorias + 1
       dataByOperacionMes[operacion][monthKey] = {
         cumplimiento:
           (existing.cumplimiento * existing.auditorias + file.cumplimiento) / totalAuditorias,
         auditorias: totalAuditorias,
+        files: [...existing.files, file],
       }
     }
   })
@@ -86,9 +191,11 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
     const row: {
       operacion: string
       meses: (number | null)[]
+      monthFiles: (AuditFile[] | null)[]
     } = {
       operacion,
       meses: [],
+      monthFiles: [],
     }
 
     // Para cada mes del año actual
@@ -98,8 +205,10 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
 
       if (data) {
         row.meses.push(Math.round(data.cumplimiento * 10) / 10)
+        row.monthFiles.push(data.files)
       } else {
         row.meses.push(null)
+        row.monthFiles.push(null)
       }
     }
 
@@ -174,24 +283,31 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
                   <TableCell className="sticky left-0 z-10 bg-card font-medium">
                     {row.operacion}
                   </TableCell>
-                  {row.meses.map((porcentaje, monthIndex) => (
-                    <TableCell
-                      key={monthIndex}
-                      className={cn(
-                        "text-center border-2 p-2",
-                        getComplianceColor(porcentaje),
-                        porcentaje !== null && "font-mono"
-                      )}
-                    >
-                      {porcentaje !== null ? (
-                        <span className={cn("text-sm font-semibold", getComplianceTextColor(porcentaje))}>
-                          {porcentaje.toFixed(0)}%
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground/50 text-xs">-</span>
-                      )}
-                    </TableCell>
-                  ))}
+                  {row.meses.map((porcentaje, monthIndex) => {
+                    const monthFiles = row.monthFiles[monthIndex]
+                    const hasFile = monthFiles !== null && monthFiles.length > 0
+                    return (
+                      <TableCell
+                        key={monthIndex}
+                        onClick={() => hasFile && handleCellClick(row.operacion, monthIndex, monthFiles)}
+                        className={cn(
+                          "text-center border-2 p-2",
+                          getComplianceColor(porcentaje),
+                          porcentaje !== null && "font-mono",
+                          hasFile && "cursor-pointer hover:opacity-80 transition-opacity"
+                        )}
+                        title={hasFile ? "Haz clic para ver vista previa del archivo Excel" : undefined}
+                      >
+                        {porcentaje !== null ? (
+                          <span className={cn("text-sm font-semibold", getComplianceTextColor(porcentaje))}>
+                            {porcentaje.toFixed(0)}%
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground/50 text-xs">-</span>
+                        )}
+                      </TableCell>
+                    )
+                  })}
                 </TableRow>
               ))}
             </TableBody>
@@ -204,6 +320,44 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
           </div>
         )}
       </CardContent>
+
+      {/* Diálogo de vista previa */}
+      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5" />
+              Vista Previa del Archivo
+            </DialogTitle>
+            <DialogDescription>
+              {previewData?.fileName}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="text-muted-foreground">Cargando...</div>
+            </div>
+          ) : previewData ? (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border">
+                  <span className="font-semibold text-sm">Operación (C5):</span>
+                  <span className="text-sm font-mono text-right max-w-[60%] break-words">
+                    {previewData.c5 !== null ? String(previewData.c5) : "Vacía"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border">
+                  <span className="font-semibold text-sm">Fecha (K5):</span>
+                  <span className="text-sm font-mono">
+                    {previewData.k5 !== null ? String(previewData.k5) : "Vacía"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }

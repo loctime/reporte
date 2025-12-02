@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { CheckCircle2, X, AlertCircle } from "lucide-react"
 import { saveColumnConfig, loadColumnConfig, type ColumnConfig } from "@/lib/column-config"
-import { cn } from "@/lib/utils"
+import { cn, formatDate } from "@/lib/utils"
 
 interface ColumnConfiguratorProps {
   rawData: any[][]
@@ -15,7 +15,7 @@ interface ColumnConfiguratorProps {
   onSkip: () => void
 }
 
-type ConfigStep = "pregunta" | "cumple" | "cumpleParcial" | "noCumple" | "noAplica" | "observacion" | "cumplimiento" | "totalItems" | "cumpleCell" | "cumpleParcialCell" | "noCumpleCell" | "noAplicaCell" | "complete"
+type ConfigStep = "pregunta" | "cumple" | "cumpleParcial" | "noCumple" | "noAplica" | "observacion" | "cumplimiento" | "totalItems" | "cumpleCell" | "cumpleParcialCell" | "noCumpleCell" | "noAplicaCell" | "operacionCell" | "fechaCell" | "complete"
 
 const stepLabels: Record<ConfigStep, string> = {
   pregunta: "Columna de Preguntas",
@@ -30,6 +30,8 @@ const stepLabels: Record<ConfigStep, string> = {
   cumpleParcialCell: "Celda de Cantidad CUMPLE PARCIAL",
   noCumpleCell: "Celda de Cantidad NO CUMPLE",
   noAplicaCell: "Celda de Cantidad NO APLICA",
+  operacionCell: "Celda de Operación (para vista previa)",
+  fechaCell: "Celda de Fecha (para vista previa)",
   complete: "Configuración Completa",
 }
 
@@ -56,6 +58,8 @@ export function ColumnConfigurator({
       cumpleParcialCell: null,
       noCumpleCell: null,
       noAplicaCell: null,
+      operacionCell: null,
+      fechaCell: null,
     }
   })
 
@@ -63,6 +67,22 @@ export function ColumnConfigurator({
   const maxColumns = Math.max(...rawData.map((row) => row?.length || 0), 0)
 
   const [selectedRow, setSelectedRow] = useState<number | null>(null)
+
+  // Función para formatear fechas de Excel (números seriales)
+  const formatExcelDate = (value: any): string => {
+    if (value === null || value === undefined || value === "") {
+      return "(vacía)"
+    }
+    
+    // Usar la función centralizada de formateo
+    const formatted = formatDate(value)
+    if (formatted && formatted !== String(value)) {
+      return formatted
+    }
+    
+    // Si no se pudo formatear como fecha, devolver el valor como string
+    return String(value)
+  }
 
   const handleCellClick = (rowIndex: number, colIndex: number) => {
     // Para pasos de celdas (estadísticas), necesitamos fila y columna
@@ -80,6 +100,12 @@ export function ColumnConfigurator({
       setCurrentStep("noAplicaCell")
     } else if (currentStep === "noAplicaCell") {
       setConfig({ ...config, noAplicaCell: { row: rowIndex, col: colIndex } })
+      setCurrentStep("operacionCell")
+    } else if (currentStep === "operacionCell") {
+      setConfig({ ...config, operacionCell: { row: rowIndex, col: colIndex } })
+      setCurrentStep("fechaCell")
+    } else if (currentStep === "fechaCell") {
+      setConfig({ ...config, fechaCell: { row: rowIndex, col: colIndex } })
       setCurrentStep("complete")
     } else {
       // Para pasos de columnas, solo necesitamos la columna
@@ -134,6 +160,16 @@ export function ColumnConfigurator({
       noCumpleCell: null,
       noAplicaCell: null,
     })
+    setCurrentStep("operacionCell")
+  }
+
+  const handleSkipOperacionFecha = () => {
+    // Saltar configuración de operación y fecha
+    setConfig({
+      ...config,
+      operacionCell: null,
+      fechaCell: null,
+    })
     setCurrentStep("complete")
   }
 
@@ -162,6 +198,8 @@ export function ColumnConfigurator({
         cumpleParcialCell: config.cumpleParcialCell ?? null,
         noCumpleCell: config.noCumpleCell ?? null,
         noAplicaCell: config.noAplicaCell ?? null,
+        operacionCell: config.operacionCell ?? null,
+        fechaCell: config.fechaCell ?? null,
       }
       saveColumnConfig(finalConfig)
       onConfigComplete(finalConfig)
@@ -179,6 +217,8 @@ export function ColumnConfigurator({
       cumpleParcialCell: null,
       noCumpleCell: null,
       noAplicaCell: null,
+      operacionCell: null,
+      fechaCell: null,
     })
     setCurrentStep("pregunta")
   }
@@ -287,6 +327,18 @@ export function ColumnConfigurator({
                 <p className="font-semibold">Fila {config.noAplicaCell.row + 1}, Col {config.noAplicaCell.col + 1}</p>
               </div>
             )}
+            {config.operacionCell && (
+              <div className="p-3 border rounded-lg">
+                <p className="text-sm text-muted-foreground">Operación</p>
+                <p className="font-semibold">Fila {config.operacionCell.row + 1}, Col {config.operacionCell.col + 1}</p>
+              </div>
+            )}
+            {config.fechaCell && (
+              <div className="p-3 border rounded-lg">
+                <p className="text-sm text-muted-foreground">Fecha</p>
+                <p className="font-semibold">Fila {config.fechaCell.row + 1}, Col {config.fechaCell.col + 1}</p>
+              </div>
+            )}
           </div>
           <div className="flex gap-2">
             <Button onClick={handleComplete} className="flex-1">
@@ -313,7 +365,7 @@ export function ColumnConfigurator({
       <CardContent className="space-y-4">
         <div className="p-4 bg-primary/10 border border-primary/20 rounded-lg">
           <p className="font-semibold mb-2">
-            Paso {currentStep === "pregunta" ? 1 : currentStep === "cumple" ? 2 : currentStep === "cumpleParcial" ? 3 : currentStep === "noCumple" ? 4 : currentStep === "noAplica" ? 5 : currentStep === "observacion" ? 6 : currentStep === "cumplimiento" ? 7 : currentStep === "totalItems" ? 8 : currentStep === "cumpleCell" ? 9 : currentStep === "cumpleParcialCell" ? 10 : currentStep === "noCumpleCell" ? 11 : currentStep === "noAplicaCell" ? 12 : 13}:
+            Paso {currentStep === "pregunta" ? 1 : currentStep === "cumple" ? 2 : currentStep === "cumpleParcial" ? 3 : currentStep === "noCumple" ? 4 : currentStep === "noAplica" ? 5 : currentStep === "observacion" ? 6 : currentStep === "cumplimiento" ? 7 : currentStep === "totalItems" ? 8 : currentStep === "cumpleCell" ? 9 : currentStep === "cumpleParcialCell" ? 10 : currentStep === "noCumpleCell" ? 11 : currentStep === "noAplicaCell" ? 12 : currentStep === "operacionCell" ? 13 : currentStep === "fechaCell" ? 14 : 15}:
             {stepLabels[currentStep]}
           </p>
           <p className="text-sm text-muted-foreground">
@@ -321,8 +373,8 @@ export function ColumnConfigurator({
               ? "Haz clic en la columna de observaciones o salta este paso si no existe"
               : currentStep === "cumplimiento"
                 ? "Haz clic en la columna donde está el porcentaje de cumplimiento (ej: % DE CUMPLIMIENTO)"
-                : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell"
-                  ? "Haz clic en la CELDA específica donde está este valor en el Excel (ej: fila 11, columna A para Total Items)"
+                : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell"
+                  ? "Haz clic en la CELDA específica donde está este valor en el Excel (ej: fila 5, columna C para Operación)"
                   : "Haz clic en la columna correspondiente en la fila de encabezados"}
           </p>
         </div>
@@ -333,7 +385,7 @@ export function ColumnConfigurator({
               <div className="bg-muted p-2 text-sm font-medium">
                 {currentStep === "cumplimiento" 
                   ? `Filas ${headerRowIndex + 1} y ${headerRowIndex + 2} - Buscar columna de Cumplimiento`
-                  : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell"
+                  : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell"
                     ? `Selecciona la CELDA específica (fila y columna) - Busca en las primeras 15 filas`
                     : `Fila ${headerRowIndex + 1} - Encabezados`}
               </div>
@@ -390,7 +442,7 @@ export function ColumnConfigurator({
                     </div>
                   ))}
                 </div>
-              ) : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" ? (
+              ) : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" ? (
                 // Mostrar múltiples filas para seleccionar celdas de estadísticas
                 <div className="space-y-2 p-2 max-h-[400px] overflow-y-auto">
                   {Array.from({ length: Math.min(15, rawData.length) }).map((_, rowIndex) => (
@@ -400,9 +452,16 @@ export function ColumnConfigurator({
                       </div>
                       {Array.from({ length: Math.min(maxColumns, 15) }).map((_, colIndex) => {
                         const cellValue = rawData[rowIndex]?.[colIndex]
-                        const cellValueStr = String(cellValue || "").trim()
+                        // Formatear la fecha si estamos en el paso de fechaCell
+                        const displayValue = currentStep === "fechaCell" 
+                          ? formatExcelDate(cellValue)
+                          : String(cellValue || "").trim()
+                        const cellValueStr = displayValue === "(vacía)" ? "" : displayValue
                         const numValue = typeof cellValue === "number" ? cellValue : Number.parseInt(String(cellValue || ""), 10)
                         const isNumeric = !isNaN(numValue) && numValue > 0
+                        
+                        // Detectar si es una fecha (número serial de Excel)
+                        const isDateValue = typeof cellValue === "number" && cellValue > 0 && cellValue < 100000 && currentStep === "fechaCell"
                         
                         // Verificar si esta celda está seleccionada
                         let isSelected = false
@@ -422,6 +481,12 @@ export function ColumnConfigurator({
                         } else if (currentStep === "noAplicaCell" && config.noAplicaCell?.row === rowIndex && config.noAplicaCell?.col === colIndex) {
                           isSelected = true
                           label = "No Aplica"
+                        } else if (currentStep === "operacionCell" && config.operacionCell?.row === rowIndex && config.operacionCell?.col === colIndex) {
+                          isSelected = true
+                          label = "Operación"
+                        } else if (currentStep === "fechaCell" && config.fechaCell?.row === rowIndex && config.fechaCell?.col === colIndex) {
+                          isSelected = true
+                          label = "Fecha"
                         }
 
                         return (
@@ -440,15 +505,20 @@ export function ColumnConfigurator({
                             }}
                           >
                             <div className="text-xs text-muted-foreground mb-1">Col {colIndex + 1}</div>
-                            <div className="truncate font-medium" title={cellValueStr}>
-                              {cellValueStr || "(vacía)"}
+                            <div className="truncate font-medium" title={displayValue}>
+                              {displayValue}
                             </div>
                             {isSelected && (
                               <Badge variant="default" className="mt-1 text-xs">
                                 {label}
                               </Badge>
                             )}
-                            {isNumeric && !isSelected && (
+                            {isDateValue && !isSelected && (
+                              <Badge variant="secondary" className="mt-1 text-xs">
+                                Fecha
+                              </Badge>
+                            )}
+                            {isNumeric && !isDateValue && !isSelected && (
                               <Badge variant="secondary" className="mt-1 text-xs">
                                 Número
                               </Badge>
@@ -522,6 +592,14 @@ export function ColumnConfigurator({
           <div className="flex gap-2">
             <Button variant="outline" onClick={handleSkipStats} className="flex-1">
               Saltar (Calcular desde items parseados)
+            </Button>
+          </div>
+        )}
+
+        {(currentStep === "operacionCell" || currentStep === "fechaCell") && (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleSkipOperacionFecha} className="flex-1">
+              Saltar (Usar valores por defecto: C5 y K5)
             </Button>
           </div>
         )}

@@ -11,9 +11,19 @@ import { cn } from "@/lib/utils"
 import { ColumnConfigurator } from "@/components/column-configurator"
 import { loadColumnConfig, clearColumnConfig, type ColumnConfig } from "@/lib/column-config"
 import * as XLSX from "xlsx"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 interface FileUploadProps {
-  onFilesProcessed: (files: AuditFile[]) => void
+  onFilesProcessed: (files: AuditFile[], fileBlobs: Map<string, Blob>) => void
 }
 
 interface UploadedFile {
@@ -31,6 +41,12 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
   const [rawData, setRawData] = useState<any[][]>([])
   const [headerRowIndex, setHeaderRowIndex] = useState<number>(-1)
   const [savedConfig, setSavedConfig] = useState<ColumnConfig | null>(null)
+  const [errorDialog, setErrorDialog] = useState<{
+    open: boolean
+    errors: Array<{ fileName: string; error: string }>
+    successfulFiles: AuditFile[]
+    successfulBlobs: Map<string, Blob>
+  } | null>(null)
 
   useEffect(() => {
     // Cargar configuración guardada al montar
@@ -65,16 +81,40 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
             setHeaderRowIndex(headerIndex)
             setShowConfigurator(true)
             return
+          } else {
+            // Si no se encuentra la fila de encabezados, mostrar error
+            setErrorDialog({
+              open: true,
+              errors: [{
+                fileName: firstFile.name,
+                error: "No se pudo encontrar la fila de encabezados. Por favor, configura las columnas manualmente.",
+              }],
+              successfulFiles: [],
+              successfulBlobs: new Map(),
+            })
+            return
           }
         } catch (error) {
-          // Si hay error leyendo, continuar con el procesamiento normal
+          // Si hay error leyendo, mostrar error
+          setErrorDialog({
+            open: true,
+            errors: [{
+              fileName: acceptedFiles[0]?.name || "Archivo desconocido",
+              error: error instanceof Error ? error.message : "Error al leer el archivo",
+            }],
+            successfulFiles: [],
+            successfulBlobs: new Map(),
+          })
+          return
         }
       }
 
-      // Si hay configuración o no se pudo leer el archivo, procesar normalmente
-      await processFiles(acceptedFiles)
+      // Si hay configuración, procesar normalmente
+      if (config) {
+        await processFiles(acceptedFiles)
+      }
     },
-    [onFilesProcessed],
+    [],
   )
 
   const processFiles = async (files: File[]) => {
@@ -87,6 +127,8 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
     setIsProcessing(true)
 
     const processedFiles: AuditFile[] = []
+    const fileBlobs = new Map<string, Blob>()
+    const errors: Array<{ fileName: string; error: string }> = []
 
     for (const uploadedFile of newFiles) {
       setUploadedFiles((prev) => prev.map((f) => (f.file === uploadedFile.file ? { ...f, status: "processing" } : f)))
@@ -94,15 +136,24 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
       try {
         const data = await parseExcelFile(uploadedFile.file)
         processedFiles.push(data)
+        
+        // Guardar el blob del archivo original
+        fileBlobs.set(data.fileName, uploadedFile.file)
 
         setUploadedFiles((prev) =>
           prev.map((f) => (f.file === uploadedFile.file ? { ...f, status: "success", data } : f)),
         )
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Error desconocido"
+        errors.push({
+          fileName: uploadedFile.file.name,
+          error: errorMessage,
+        })
+        
         setUploadedFiles((prev) =>
           prev.map((f) =>
             f.file === uploadedFile.file
-              ? { ...f, status: "error", error: error instanceof Error ? error.message : "Error desconocido" }
+              ? { ...f, status: "error", error: errorMessage }
               : f,
           ),
         )
@@ -111,8 +162,17 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
 
     setIsProcessing(false)
 
-    if (processedFiles.length > 0) {
-      onFilesProcessed(processedFiles)
+    // Si hay errores, mostrar diálogo para preguntar al usuario
+    if (errors.length > 0) {
+      setErrorDialog({
+        open: true,
+        errors,
+        successfulFiles: processedFiles,
+        successfulBlobs: fileBlobs,
+      })
+    } else if (processedFiles.length > 0) {
+      // Si no hay errores, procesar normalmente
+      onFilesProcessed(processedFiles, fileBlobs)
     }
   }
 
@@ -128,11 +188,17 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
 
   const handleConfigSkip = async () => {
     setShowConfigurator(false)
-    // Procesar con detección automática
-    if (configFile) {
-      await processFiles([configFile])
-      setConfigFile(null)
-    }
+    // No procesar sin configuración - el usuario debe configurar primero
+    setErrorDialog({
+      open: true,
+      errors: [{
+        fileName: configFile?.name || "Archivo",
+        error: "Se requiere configuración de columnas para procesar archivos. Por favor, completa la configuración.",
+      }],
+      successfulFiles: [],
+      successfulBlobs: new Map(),
+    })
+    setConfigFile(null)
   }
 
   const handleReconfigure = () => {
@@ -253,6 +319,77 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Diálogo de errores */}
+      {errorDialog && (
+        <AlertDialog open={errorDialog.open} onOpenChange={(open) => {
+          if (!open) {
+            setErrorDialog(null)
+          }
+        }}>
+          <AlertDialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-destructive" />
+                Errores al procesar archivos
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {errorDialog.errors.length} archivo(s) tuvieron problemas al procesarse.
+                {errorDialog.successfulFiles.length > 0 && (
+                  <span className="block mt-2">
+                    {errorDialog.successfulFiles.length} archivo(s) se procesaron correctamente.
+                  </span>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+
+            <div className="space-y-4 my-4">
+              <div>
+                <h4 className="font-semibold mb-2 text-destructive">Archivos con errores:</h4>
+                <div className="space-y-2">
+                  {errorDialog.errors.map((error, index) => (
+                    <Card key={index} className="border-destructive/20">
+                      <CardContent className="p-3">
+                        <p className="font-medium text-sm">{error.fileName}</p>
+                        <p className="text-sm text-muted-foreground mt-1">{error.error}</p>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+
+              {errorDialog.successfulFiles.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2 text-success">Archivos procesados correctamente:</h4>
+                  <div className="space-y-1">
+                    {errorDialog.successfulFiles.map((file, index) => (
+                      <p key={index} className="text-sm text-muted-foreground">
+                        • {file.fileName}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setErrorDialog(null)}>
+                Cancelar todo
+              </AlertDialogCancel>
+              {errorDialog.successfulFiles.length > 0 && (
+                <AlertDialogAction
+                  onClick={() => {
+                    onFilesProcessed(errorDialog.successfulFiles, errorDialog.successfulBlobs)
+                    setErrorDialog(null)
+                  }}
+                >
+                  Continuar con archivos exitosos ({errorDialog.successfulFiles.length})
+                </AlertDialogAction>
+              )}
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
     </div>
   )

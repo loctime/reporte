@@ -14,6 +14,9 @@ export interface ColumnConfig {
   cumpleParcialCell: { row: number; col: number } | null
   noCumpleCell: { row: number; col: number } | null
   noAplicaCell: { row: number; col: number } | null
+  // Celdas de metadatos para vista previa
+  operacionCell: { row: number; col: number } | null
+  fechaCell: { row: number; col: number } | null
 }
 
 const CONFIG_STORAGE_KEY = "excel-column-config"

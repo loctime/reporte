@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { User, TrendingUp, AlertTriangle, Calendar, Building2 } from "lucide-react"
 import Link from "next/link"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts"
+import { formatDate } from "@/lib/utils"
 
 export default function AuditoresPage() {
   const { auditFiles, getAllItems, getStats } = useAudit()
@@ -288,7 +289,7 @@ export default function AuditoresPage() {
                   <TableBody>
                     {auditoriasAuditor.map((audit, index) => (
                       <TableRow key={index}>
-                        <TableCell>{audit.fecha.toLocaleDateString("es-AR")}</TableCell>
+                        <TableCell>{formatDate(audit.fecha)}</TableCell>
                         <TableCell className="max-w-xs truncate">{audit.operacion}</TableCell>
                         <TableCell>{audit.responsable}</TableCell>
                         <TableCell className="text-right">{audit.totalItems}</TableCell>

@@ -72,164 +72,158 @@ export async function parseExcelFile(file: File): Promise<AuditFile> {
     }
   }
 
-  // Si no se encontró la fecha en el formato estándar, buscar en fila 5, columna K (índice 4, columna 10)
-  if (fecha.getTime() === new Date().getTime() && jsonData.length > 4) {
-    const row5 = jsonData[4] // Fila 5 (índice 4)
-    if (row5 && row5.length > 10) {
-      const fechaStr = String(row5[10] || "").trim() // Columna K (índice 10)
-      if (fechaStr && fechaStr.length > 0) {
-        const parsedFecha = parseFecha(fechaStr)
-        if (parsedFecha.getFullYear() > 2000 && parsedFecha.getFullYear() < 2100) {
-          fecha = parsedFecha
-        }
-      }
-    }
-  }
-
-  // Verificar si hay configuración guardada
+  // Verificar si hay configuración guardada - REQUERIDA
   const savedConfig = loadColumnConfig()
   
-  // Encontrar la fila de encabezados de la tabla
-  let headerRowIndex = -1
-  let columnMapping: ColumnMapping = {
-    pregunta: null,
-    cumple: null,
-    cumpleParcial: null,
-    noCumple: null,
-    noAplica: null,
-    observacion: null,
+  if (!savedConfig) {
+    throw new Error(
+      "No hay configuración de columnas guardada. Por favor, configura las columnas del Excel primero."
+    )
   }
 
-  // Si hay configuración guardada, usarla directamente
-  if (savedConfig) {
-    headerRowIndex = savedConfig.headerRowIndex
-    columnMapping = {
-      pregunta: savedConfig.pregunta,
-      cumple: savedConfig.cumple,
-      cumpleParcial: savedConfig.cumpleParcial,
-      noCumple: savedConfig.noCumple,
-      noAplica: savedConfig.noAplica,
-      observacion: savedConfig.observacion,
+  // Validar que la configuración tenga los campos mínimos requeridos
+  if (
+    savedConfig.pregunta === undefined ||
+    savedConfig.cumple === undefined ||
+    savedConfig.cumpleParcial === undefined ||
+    savedConfig.noCumple === undefined ||
+    savedConfig.noAplica === undefined ||
+    savedConfig.headerRowIndex === undefined
+  ) {
+    throw new Error(
+      "La configuración de columnas está incompleta. Por favor, vuelve a configurar las columnas del Excel."
+    )
+  }
+
+  // Validar que haya configuración de fecha y operación
+  if (!savedConfig.fechaCell || !savedConfig.operacionCell) {
+    throw new Error(
+      "La configuración no incluye las celdas de fecha u operación. Por favor, completa la configuración."
+    )
+  }
+
+  // Función para convertir índice de columna a notación Excel (0=A, 1=B, ..., 25=Z, 26=AA, etc.)
+  const colIndexToExcel = (colIndex: number): string => {
+    let result = ""
+    let num = colIndex
+    while (num >= 0) {
+      result = String.fromCharCode(65 + (num % 26)) + result
+      num = Math.floor(num / 26) - 1
+    }
+    return result
+  }
+  
+  // Leer operación desde la celda configurada
+  if (savedConfig.operacionCell) {
+    const colLetter = colIndexToExcel(savedConfig.operacionCell.col)
+    const cellAddress = `${colLetter}${savedConfig.operacionCell.row + 1}`
+    const operacionCell = firstSheet[cellAddress]
+    
+    if (operacionCell && operacionCell.v) {
+      operacion = String(operacionCell.v).trim()
+    } else {
+      // Fallback: leer desde jsonData
+      const operacionRow = jsonData[savedConfig.operacionCell.row]
+      if (operacionRow && operacionRow.length > savedConfig.operacionCell.col) {
+        const operacionValue = operacionRow[savedConfig.operacionCell.col]
+        if (operacionValue) {
+          operacion = String(operacionValue).trim()
+        }
+      }
     }
   }
-
-  // Solo buscar encabezados si no hay configuración guardada
-  if (!savedConfig) {
-    for (let i = 0; i < jsonData.length; i++) {
-      const row = jsonData[i]
-      if (!row) continue
-
-      // Buscar fila que contenga encabezados de estado
-      const rowText = row.map((cell) => String(cell || "").toLowerCase()).join(" ")
-      
-      if (rowText.includes("cumple") || rowText.includes("items") || rowText.includes("pregunta")) {
-        headerRowIndex = i
-      
-        // Detectar columnas basándose en los encabezados
-        for (let col = 0; col < row.length; col++) {
-          const cell = String(row[col] || "").toLowerCase().trim()
-          
-          // Detectar columna de pregunta - puede ser "PUNTOS DE CHEQUEO", "PREGUNTA", etc.
-          if (!columnMapping.pregunta && (
-            cell.includes("pregunta") || 
-            cell.includes("chequeo") || 
-            cell.includes("puntos") ||
-            cell.includes("item") && !cell.includes("items") ||
-            cell.includes("criterio")
-          )) {
-            columnMapping.pregunta = col
-          }
-          
-          // Detectar columnas de estado - orden específico para evitar conflictos
-          // Primero buscar las más específicas (las que contienen múltiples palabras)
-          const cellNormalized = cell.replace(/\s+/g, " ").trim()
-          
-          if (cellNormalized.includes("no aplica") || cellNormalized === "na" || 
-              (cellNormalized.includes("no") && cellNormalized.includes("aplica") && !cellNormalized.includes("cumple"))) {
-            if (columnMapping.noAplica === null) columnMapping.noAplica = col
-          } else if (cellNormalized.includes("no cumple") || cellNormalized === "nc" || 
-                     (cellNormalized.includes("no") && cellNormalized.includes("cumple"))) {
-            if (columnMapping.noCumple === null) columnMapping.noCumple = col
-          } else if (cellNormalized.includes("parcial") || cellNormalized.includes("cp") || 
-                     cellNormalized.includes("cumple parcial") || cellNormalized === "cumple parcial") {
-            if (columnMapping.cumpleParcial === null) columnMapping.cumpleParcial = col
-          } else if (cellNormalized === "cumple" || 
-                     (cellNormalized.includes("cumple") && !cellNormalized.includes("parcial") && !cellNormalized.includes("no"))) {
-            if (columnMapping.cumple === null) columnMapping.cumple = col
-          }
-          
-          // Detectar columna de observación
-          if (!columnMapping.observacion && (cell.includes("observación") || cell.includes("observacion") || cell.includes("comentario"))) {
-            columnMapping.observacion = col
+  
+  // Si hay configuración de fechaCell, usarla (REQUERIDA)
+  if (savedConfig.fechaCell) {
+    // Leer directamente desde la hoja usando la notación de celda
+    const fechaColLetter = colIndexToExcel(savedConfig.fechaCell.col)
+    const fechaCellAddress = `${fechaColLetter}${savedConfig.fechaCell.row + 1}`
+    const fechaCell = firstSheet[fechaCellAddress]
+    
+    if (fechaCell) {
+      // XLSX puede devolver fechas como números seriales o como strings
+      if (typeof fechaCell.v === "number") {
+        // Es un número serial de Excel
+        // Excel cuenta desde 1900-01-01, pero tiene un bug donde cuenta 1900 como año bisiesto
+        // La fórmula correcta es: Excel epoch es 30 de diciembre de 1899
+        const excelEpoch = new Date(1899, 11, 30) // 30 de diciembre de 1899
+        const jsDate = new Date(excelEpoch.getTime() + (fechaCell.v - 1) * 24 * 60 * 60 * 1000)
+        
+        // Validar que la fecha sea razonable
+        if (!isNaN(jsDate.getTime()) && jsDate.getFullYear() > 2000 && jsDate.getFullYear() < 2100) {
+          fecha = jsDate
+        } else {
+          console.warn(`Fecha serial de Excel inválida: ${fechaCell.v} -> ${jsDate}`)
+        }
+      } else if (fechaCell.v !== null && fechaCell.v !== undefined) {
+        // Es un string u otro tipo, parsearlo como DD/MM/YYYY
+        const fechaStr = String(fechaCell.v).trim()
+        if (fechaStr.length > 0) {
+          const parsedFecha = parseFecha(fechaStr)
+          // Validar que la fecha parseada sea razonable
+          if (!isNaN(parsedFecha.getTime()) && parsedFecha.getFullYear() > 2000 && parsedFecha.getFullYear() < 2100) {
+            fecha = parsedFecha
+          } else {
+            console.warn(`Fecha string parseada inválida: "${fechaStr}" -> ${parsedFecha}`)
           }
         }
-        
-        // Si faltan algunas columnas, usar detección por posición en las primeras filas de datos
-        if (columnMapping.cumple === null || columnMapping.cumpleParcial === null || 
-            columnMapping.noCumple === null || columnMapping.noAplica === null) {
-          // Buscar columnas con "x" en las primeras filas de datos para inferir posiciones faltantes
-          for (let testRow = i + 1; testRow < Math.min(i + 10, jsonData.length); testRow++) {
-            const testData = jsonData[testRow]
-            if (!testData) continue
-            
-            // Saltar filas que son categorías o resúmenes
-            const firstCell = String(testData[0] || "").trim()
-            if (firstCell.length > 0 && !/^\d+$/.test(firstCell) && firstCell.toUpperCase() === firstCell && firstCell.length > 10) {
-              continue
+      }
+    } else {
+      // Fallback: leer desde jsonData
+      const fechaRow = jsonData[savedConfig.fechaCell.row]
+      if (fechaRow && fechaRow.length > savedConfig.fechaCell.col) {
+        const fechaValue = fechaRow[savedConfig.fechaCell.col]
+        if (fechaValue !== null && fechaValue !== undefined && fechaValue !== "") {
+          // Si es un número, podría ser un serial de Excel
+          if (typeof fechaValue === "number") {
+            const excelEpoch = new Date(1899, 11, 30)
+            const jsDate = new Date(excelEpoch.getTime() + (fechaValue - 1) * 24 * 60 * 60 * 1000)
+            if (jsDate.getFullYear() > 2000 && jsDate.getFullYear() < 2100) {
+              fecha = jsDate
             }
-            
-            for (let col = 0; col < testData.length; col++) {
-              const cell = String(testData[col] || "").trim().toLowerCase()
-              if (cell === "x" || cell === "X") {
-                // Asignar según orden típico si no tenemos mapeo para esa columna
-                if (columnMapping.cumple === null && col >= 2) {
-                  columnMapping.cumple = col
-                } else if (columnMapping.cumpleParcial === null && col > (columnMapping.cumple ?? 0) && col < 10) {
-                  columnMapping.cumpleParcial = col
-                } else if (columnMapping.noCumple === null && col > (columnMapping.cumpleParcial ?? columnMapping.cumple ?? 0) && col < 10) {
-                  columnMapping.noCumple = col
-                } else if (columnMapping.noAplica === null && col > (columnMapping.noCumple ?? columnMapping.cumpleParcial ?? columnMapping.cumple ?? 0) && col < 10) {
-                  columnMapping.noAplica = col
-                }
+          } else {
+            const fechaStr = String(fechaValue).trim()
+            if (fechaStr.length > 0) {
+              const parsedFecha = parseFecha(fechaStr)
+              if (parsedFecha.getFullYear() > 2000 && parsedFecha.getFullYear() < 2100) {
+                fecha = parsedFecha
               }
             }
-            
-            // Si ya encontramos todas las columnas, salir
-            if (columnMapping.cumple !== null && columnMapping.cumpleParcial !== null && 
-                columnMapping.noCumple !== null && columnMapping.noAplica !== null) {
-              break
-            }
           }
         }
-        
-        break
       }
     }
   }
-
-  if (headerRowIndex === -1) {
-    throw new Error("No se encontró la estructura de la tabla de auditoría")
-  }
-
-  // Buscar columna de cumplimiento en el Excel
-  let cumplimientoCol: number | null = null
   
-  // Si hay configuración guardada, usar la columna configurada
-  if (savedConfig && savedConfig.cumplimientoCol !== null) {
-    cumplimientoCol = savedConfig.cumplimientoCol
-  } else {
-    // Buscar automáticamente en los encabezados
-    const headerRow = jsonData[headerRowIndex]
-    if (headerRow) {
-      for (let col = 0; col < headerRow.length; col++) {
-        const cell = String(headerRow[col] || "").toLowerCase().trim()
-        if (cell.includes("% de cumplimiento") || cell.includes("cumplimiento") || cell.includes("% cumplimiento")) {
-          cumplimientoCol = col
-          break
-        }
-      }
-    }
+  // Validar que se haya encontrado la fecha
+  if (fecha.getTime() === new Date().getTime() || isNaN(fecha.getTime())) {
+    throw new Error(
+      `No se pudo leer la fecha desde la celda configurada (fila ${savedConfig.fechaCell.row + 1}, columna ${colIndexToExcel(savedConfig.fechaCell.col)}). Por favor, verifica la configuración.`
+    )
   }
+  
+  // Usar configuración guardada (REQUERIDA)
+  const headerRowIndex = savedConfig.headerRowIndex
+  const columnMapping: ColumnMapping = {
+    pregunta: savedConfig.pregunta,
+    cumple: savedConfig.cumple,
+    cumpleParcial: savedConfig.cumpleParcial,
+    noCumple: savedConfig.noCumple,
+    noAplica: savedConfig.noAplica,
+    observacion: savedConfig.observacion,
+  }
+
+  // Validar que la fila de encabezados existe
+  if (headerRowIndex < 0 || headerRowIndex >= jsonData.length) {
+    throw new Error(
+      `La fila de encabezados configurada (fila ${headerRowIndex + 1}) no existe en el archivo. Por favor, verifica la configuración.`
+    )
+  }
+
+  // Código de detección automática eliminado - ahora requiere configuración manual
+
+  // Usar columna de cumplimiento de la configuración (opcional)
+  const cumplimientoCol: number | null = savedConfig.cumplimientoCol ?? null
 
   // Leer el valor de cumplimiento del Excel
   let cumplimientoFromExcel: number | null = null
@@ -466,41 +460,55 @@ function parseFecha(fechaStr: string): Date {
   if (!isNaN(numValue) && numValue > 40000 && numValue < 100000) {
     // Es probablemente un serial de Excel (días desde 1900-01-01)
     // Excel cuenta desde 1900-01-01, pero tiene un bug donde cuenta 1900 como año bisiesto
+    // La fórmula correcta: Excel epoch es 30 de diciembre de 1899
     const excelEpoch = new Date(1899, 11, 30) // 30 de diciembre de 1899
-    const date = new Date(excelEpoch.getTime() + numValue * 24 * 60 * 60 * 1000)
-    if (date.getFullYear() > 2000 && date.getFullYear() < 2100) {
+    const date = new Date(excelEpoch.getTime() + (numValue - 1) * 24 * 60 * 60 * 1000)
+    
+    // Validar que la fecha sea razonable
+    if (!isNaN(date.getTime()) && date.getFullYear() > 2000 && date.getFullYear() < 2100) {
       return date
+    } else {
+      console.warn(`Número serial de Excel inválido: ${numValue} -> ${date.toLocaleDateString()}`)
     }
   }
   
   // Intentar diferentes formatos de fecha
   cleaned = cleaned.replace(/[^\d/\-]/g, "").trim()
   
-  // Formato: MM/DD/YYYY o DD/MM/YYYY
+  // Formato: DD/MM/YYYY (formato argentino/español)
   const parts = cleaned.split(/[\/\-]/)
   if (parts.length === 3) {
     const part1 = Number.parseInt(parts[0])
     const part2 = Number.parseInt(parts[1])
-    const part3 = Number.parseInt(parts[2])
+    let part3 = Number.parseInt(parts[2])
+    
+    // Manejar años de 2 dígitos (25 -> 2025, 24 -> 2024)
+    if (part3 < 100) {
+      if (part3 < 50) {
+        part3 = 2000 + part3 // 00-49 -> 2000-2049
+      } else {
+        part3 = 1900 + part3 // 50-99 -> 1950-1999
+      }
+    }
     
     // Validar que los números sean razonables
-    if (part1 > 0 && part1 <= 31 && part2 > 0 && part2 <= 12 && part3 > 2000 && part3 < 2100) {
-      // Si el primer número es > 12, asumir formato DD/MM/YYYY
-      if (part1 > 12) {
-        return new Date(part3, part2 - 1, part1)
+    if (part1 > 0 && part1 <= 31 && part2 > 0 && part2 <= 12 && part3 >= 2000 && part3 < 2100) {
+      // SIEMPRE asumir formato DD/MM/YYYY (formato argentino/español)
+      // Día en part1, Mes en part2, Año en part3
+      const parsedDate = new Date(part3, part2 - 1, part1)
+      
+      // Validar que la fecha creada sea correcta (evitar rollover de días)
+      if (parsedDate.getDate() === part1 && parsedDate.getMonth() === part2 - 1 && parsedDate.getFullYear() === part3) {
+        return parsedDate
       } else {
-        // Asumir MM/DD/YYYY (formato común en Excel)
-        return new Date(part3, part1 - 1, part2)
+        console.warn(`Fecha inválida (rollover detectado): ${part1}/${part2}/${part3} -> ${parsedDate.toLocaleDateString()}`)
       }
     }
   }
   
-  // Intentar parsear directamente
-  const parsed = new Date(fechaStr)
-  if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 2000 && parsed.getFullYear() < 2100) {
-    return parsed
-  }
-  
+  // NO usar new Date(fechaStr) directamente porque puede interpretar como MM/DD/YYYY
+  // En su lugar, si llegamos aquí, devolver una fecha por defecto y registrar un warning
+  console.warn(`No se pudo parsear la fecha: "${fechaStr}"`)
   return new Date()
 }
 

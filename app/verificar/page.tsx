@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Upload, FileSpreadsheet, Loader2, CheckCircle2, AlertCircle, X, Settings } from "lucide-react"
 import * as XLSX from "xlsx"
 import { parseExcelFile } from "@/lib/excel-parser"
-import { cn } from "@/lib/utils"
+import { cn, formatDate } from "@/lib/utils"
 import type { AuditFile } from "@/lib/types"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ColumnConfigurator } from "@/components/column-configurator"
@@ -413,7 +413,7 @@ export default function VerificarPage() {
                           <div>
                             <p className="text-sm text-muted-foreground">Fecha</p>
                             <p className="font-semibold">
-                              {debugData.parsedData.fecha.toLocaleDateString("es-AR")}
+                              {formatDate(debugData.parsedData.fecha)}
                             </p>
                           </div>
                           <div>

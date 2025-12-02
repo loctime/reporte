@@ -8,21 +8,66 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useAudit } from "@/lib/audit-context"
 import type { AuditFile } from "@/lib/types"
-import { ArrowRight, FileSpreadsheet } from "lucide-react"
+import { ArrowRight, FileSpreadsheet, RefreshCw } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 export default function UploadPage() {
   const router = useRouter()
-  const { addAuditFiles, auditFiles } = useAudit()
+  const { addAuditFiles, auditFiles, reparseFiles } = useAudit()
   const [processedFiles, setProcessedFiles] = useState<AuditFile[]>([])
+  const [fileBlobs, setFileBlobs] = useState<Map<string, Blob>>(new Map())
+  const [isReparsing, setIsReparsing] = useState(false)
+  const [reparseDialog, setReparseDialog] = useState<{
+    open: boolean
+    result: { success: number; errors: Array<{ fileName: string; error: string }> } | null
+  }>({ open: false, result: null })
 
-  const handleFilesProcessed = (files: AuditFile[]) => {
+  const handleFilesProcessed = (files: AuditFile[], blobs: Map<string, Blob>) => {
     setProcessedFiles((prev) => [...prev, ...files])
+    setFileBlobs((prev) => {
+      const newMap = new Map(prev)
+      blobs.forEach((blob, fileName) => {
+        newMap.set(fileName, blob)
+      })
+      return newMap
+    })
   }
 
   const handleContinue = () => {
     if (processedFiles.length > 0) {
-      addAuditFiles(processedFiles)
+      addAuditFiles(processedFiles, fileBlobs)
       router.push("/dashboard")
+    }
+  }
+
+  const handleReparse = async () => {
+    if (auditFiles.length === 0) {
+      return
+    }
+
+    setIsReparsing(true)
+    try {
+      const result = await reparseFiles()
+      setReparseDialog({ open: true, result })
+    } catch (error) {
+      setReparseDialog({
+        open: true,
+        result: {
+          success: 0,
+          errors: [{ fileName: "Error general", error: error instanceof Error ? error.message : "Error desconocido" }],
+        },
+      })
+    } finally {
+      setIsReparsing(false)
     }
   }
 
@@ -54,15 +99,28 @@ export default function UploadPage() {
                       <p className="text-sm text-muted-foreground">
                         {processedFiles.length > 0 &&
                           `${processedFiles.length} nueva${processedFiles.length !== 1 ? "s" : ""} lista${processedFiles.length !== 1 ? "s" : ""} para agregar`}
+                        {auditFiles.length > 0 && (
+                          <span className="block mt-1">
+                            {auditFiles.length} archivo{auditFiles.length !== 1 ? "s" : ""} ya procesado{auditFiles.length !== 1 ? "s" : ""}
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>
-                  {processedFiles.length > 0 && (
-                    <Button onClick={handleContinue}>
-                      Continuar al Dashboard
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {auditFiles.length > 0 && (
+                      <Button variant="outline" onClick={handleReparse} disabled={isReparsing}>
+                        <RefreshCw className={`h-4 w-4 mr-2 ${isReparsing ? "animate-spin" : ""}`} />
+                        Re-parsear archivos existentes
+                      </Button>
+                    )}
+                    {processedFiles.length > 0 && (
+                      <Button onClick={handleContinue}>
+                        Continuar al Dashboard
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -98,6 +156,60 @@ export default function UploadPage() {
           </Card>
         </div>
       </main>
+
+      {/* Diálogo de resultado de re-parseo */}
+      {reparseDialog.result && (
+        <AlertDialog
+          open={reparseDialog.open}
+          onOpenChange={(open) => {
+            if (!open) {
+              setReparseDialog({ open: false, result: null })
+            }
+          }}
+        >
+          <AlertDialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {reparseDialog.result.errors.length === 0
+                  ? "Re-parseo completado exitosamente"
+                  : "Re-parseo completado con errores"}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {reparseDialog.result.success > 0 && (
+                  <span className="block mb-2">
+                    {reparseDialog.result.success} archivo(s) re-parseado(s) correctamente.
+                  </span>
+                )}
+                {reparseDialog.result.errors.length > 0 && (
+                  <span className="block text-destructive">
+                    {reparseDialog.result.errors.length} archivo(s) tuvieron problemas.
+                  </span>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+
+            {reparseDialog.result.errors.length > 0 && (
+              <div className="space-y-2 my-4">
+                <h4 className="font-semibold text-destructive">Errores:</h4>
+                {reparseDialog.result.errors.map((error, index) => (
+                  <Card key={index} className="border-destructive/20">
+                    <CardContent className="p-3">
+                      <p className="font-medium text-sm">{error.fileName}</p>
+                      <p className="text-sm text-muted-foreground mt-1">{error.error}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            <AlertDialogFooter>
+              <AlertDialogAction onClick={() => setReparseDialog({ open: false, result: null })}>
+                Aceptar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   )
 }

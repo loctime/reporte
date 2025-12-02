@@ -1,12 +1,13 @@
 import * as XLSX from "xlsx"
 import type { AuditItem } from "./types"
+import { formatDate } from "./utils"
 
 export function exportToExcel(items: AuditItem[], fileName = "auditorias-consolidadas.xlsx") {
   const data = items.map((item) => ({
     Operación: item.operacion,
     Responsable: item.responsable,
     Cliente: item.cliente,
-    Fecha: item.fecha.toLocaleDateString("es-AR"),
+    Fecha: formatDate(item.fecha),
     Auditor: item.auditor,
     Categoría: item.categoria,
     Item: item.item,

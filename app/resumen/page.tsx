@@ -26,6 +26,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts"
+import { formatDate } from "@/lib/utils"
 
 // Tooltip personalizado para gráfico de categorías
 const CustomTooltipCategorias = ({ active, payload }: any) => {
@@ -411,7 +412,7 @@ export default function ResumenPage() {
                     <TableBody>
                       {auditoriasOperacion.map((audit, index) => (
                         <TableRow key={index}>
-                          <TableCell>{audit.fecha.toLocaleDateString("es-AR")}</TableCell>
+                          <TableCell>{formatDate(audit.fecha)}</TableCell>
                           <TableCell>{audit.auditor}</TableCell>
                           <TableCell>{audit.responsable}</TableCell>
                           <TableCell className="text-right">{audit.totalItems}</TableCell>
@@ -621,7 +622,7 @@ export default function ResumenPage() {
                     <TableBody>
                       {auditoriasAuditor.map((audit, index) => (
                         <TableRow key={index}>
-                          <TableCell>{audit.fecha.toLocaleDateString("es-AR")}</TableCell>
+                          <TableCell>{formatDate(audit.fecha)}</TableCell>
                           <TableCell className="max-w-xs truncate">{audit.operacion}</TableCell>
                           <TableCell>{audit.responsable}</TableCell>
                           <TableCell className="text-right">{audit.totalItems}</TableCell>
