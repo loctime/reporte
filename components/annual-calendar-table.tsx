@@ -227,8 +227,8 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
     return row
   })
 
-  const handleExportToExcel = () => {
-    exportCalendarToExcel(tableData, currentYear, monthNames)
+  const handleExportToExcel = async () => {
+    await exportCalendarToExcel(tableData, currentYear, monthNames)
   }
 
   return (
@@ -297,13 +297,13 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
         </div>
 
         {/* Tabla */}
-        <div className="overflow-x-auto">
-          <Table>
+        <div className="w-full overflow-x-auto">
+          <Table className="w-full" style={{ fontSize: 'clamp(0.7rem, 1.2vw, 0.875rem)' }}>
             <TableHeader>
               <TableRow>
-                <TableHead className="sticky left-0 z-10 bg-card min-w-[250px] font-semibold text-base">OPERACIÓN</TableHead>
+                <TableHead className="sticky left-0 z-10 bg-card min-w-[180px] max-w-[180px] font-semibold text-xs border-r-2">OPERACIÓN</TableHead>
                 {monthNames.map((month) => (
-                  <TableHead key={month} className="text-center min-w-[140px] font-semibold text-base">
+                  <TableHead key={month} className="text-center min-w-[85px] max-w-[85px] font-semibold text-xs">
                     {month}
                   </TableHead>
                 ))}
@@ -312,8 +312,10 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
             <TableBody>
               {tableData.map((row, rowIndex) => (
                 <TableRow key={rowIndex}>
-                  <TableCell className="sticky left-0 z-10 bg-card font-medium text-base py-4">
-                    {row.operacion}
+                  <TableCell className="sticky left-0 z-10 bg-card font-medium text-xs py-2 px-2 border-r-2" title={row.operacion}>
+                    <div className="truncate" title={row.operacion}>
+                      {row.operacion}
+                    </div>
                   </TableCell>
                   {row.meses.map((porcentaje, monthIndex) => {
                     const monthFiles = row.monthFiles[monthIndex]
@@ -324,7 +326,7 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
                         key={monthIndex}
                         onClick={() => hasFile && handleCellClick(row.operacion, monthIndex, monthFiles)}
                         className={cn(
-                          "text-center border-2 p-4 min-h-[120px]",
+                          "text-center border-2 p-1.5 min-h-[75px] align-top",
                           getComplianceColor(porcentaje),
                           porcentaje !== null && "font-mono",
                           hasFile && "cursor-pointer hover:opacity-80 transition-opacity"
@@ -332,27 +334,33 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
                         title={hasFile ? "Haz clic para ver vista previa del archivo Excel" : undefined}
                       >
                         {porcentaje !== null ? (
-                          <div className="flex flex-col items-center justify-center gap-2">
-                            <span className={cn("text-lg font-semibold", getComplianceTextColor(porcentaje))}>
+                          <div className="flex flex-col items-center justify-center gap-1 py-0.5">
+                            <span className={cn("text-sm font-bold leading-tight", getComplianceTextColor(porcentaje))}>
                               {porcentaje.toFixed(0)}%
                             </span>
                             {file && (
-                              <>
+                              <div className="w-full space-y-0.5 mt-0.5">
                                 {file.responsable && (
-                                  <div className="text-xs text-muted-foreground mt-1">
-                                    <span className="font-semibold">Resp:</span> {file.responsable}
+                                  <div className="text-[9px] text-muted-foreground leading-tight break-words">
+                                    <span className="font-semibold">R:</span>{" "}
+                                    <span className="break-all" title={file.responsable}>
+                                      {file.responsable}
+                                    </span>
                                   </div>
                                 )}
                                 {file.auditor && (
-                                  <div className="text-xs text-muted-foreground">
-                                    <span className="font-semibold">Aud:</span> {file.auditor}
+                                  <div className="text-[9px] text-muted-foreground leading-tight break-words">
+                                    <span className="font-semibold">A:</span>{" "}
+                                    <span className="break-all" title={file.auditor}>
+                                      {file.auditor}
+                                    </span>
                                   </div>
                                 )}
-                              </>
+                              </div>
                             )}
                           </div>
                         ) : (
-                          <span className="text-muted-foreground/50 text-xs">-</span>
+                          <span className="text-muted-foreground/50 text-[10px]">-</span>
                         )}
                       </TableCell>
                     )
