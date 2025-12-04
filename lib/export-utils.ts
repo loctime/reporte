@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx"
 import type { AuditItem } from "./types"
-import { formatDate } from "./utils"
+import { formatDate, shortenName } from "./utils"
 
 // Importar exceljs de forma condicional
 let ExcelJS: any = null
@@ -111,10 +111,10 @@ async function exportCalendarWithExcelJS(
         let cellLength = `${porcentaje.toFixed(0)}%`.length
         if (file) {
           if (file.responsable) {
-            cellLength = Math.max(cellLength, `Resp: ${file.responsable}`.length)
+            cellLength = Math.max(cellLength, `Resp: ${shortenName(file.responsable)}`.length)
           }
           if (file.auditor) {
-            cellLength = Math.max(cellLength, `Aud: ${file.auditor}`.length)
+            cellLength = Math.max(cellLength, `Aud: ${shortenName(file.auditor)}`.length)
           }
         }
         maxWidth = Math.max(maxWidth, Math.min(cellLength + 3, 25))
@@ -200,8 +200,8 @@ async function exportCalendarWithExcelJS(
         
         if (file) {
           const details: string[] = []
-          if (file.responsable) details.push(`Resp: ${file.responsable}`)
-          if (file.auditor) details.push(`Aud: ${file.auditor}`)
+          if (file.responsable) details.push(`Resp: ${shortenName(file.responsable)}`)
+          if (file.auditor) details.push(`Aud: ${shortenName(file.auditor)}`)
           if (details.length > 0) {
             cellValue += `\n${details.join("\n")}`
           }
@@ -401,8 +401,8 @@ async function exportCalendarWithXLSX(
         // Agregar responsable y auditor si están disponibles
         if (file) {
           const details: string[] = []
-          if (file.responsable) details.push(`Resp: ${file.responsable}`)
-          if (file.auditor) details.push(`Aud: ${file.auditor}`)
+          if (file.responsable) details.push(`Resp: ${shortenName(file.responsable)}`)
+          if (file.auditor) details.push(`Aud: ${shortenName(file.auditor)}`)
           if (details.length > 0) {
             cellValue += `\n${details.join("\n")}`
           }
@@ -430,10 +430,10 @@ async function exportCalendarWithXLSX(
         let cellLength = `${porcentaje.toFixed(0)}%`.length
         if (file) {
           if (file.responsable) {
-            cellLength = Math.max(cellLength, `Resp: ${file.responsable}`.length)
+            cellLength = Math.max(cellLength, `Resp: ${shortenName(file.responsable)}`.length)
           }
           if (file.auditor) {
-            cellLength = Math.max(cellLength, `Aud: ${file.auditor}`.length)
+            cellLength = Math.max(cellLength, `Aud: ${shortenName(file.auditor)}`.length)
           }
         }
         maxWidth = Math.max(maxWidth, Math.min(cellLength + 3, 25))

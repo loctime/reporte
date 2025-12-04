@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Calendar, FileSpreadsheet, Download } from "lucide-react"
-import { cn, formatDate } from "@/lib/utils"
+import { cn, formatDate, shortenName } from "@/lib/utils"
 import type { AuditFile } from "@/lib/types"
 import { useAudit } from "@/lib/audit-context"
 import { loadColumnConfig } from "@/lib/column-config"
@@ -344,7 +344,7 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
                                   <div className="text-[9px] text-muted-foreground leading-tight break-words">
                                     <span className="font-semibold">R:</span>{" "}
                                     <span className="break-all" title={file.responsable}>
-                                      {file.responsable}
+                                      {shortenName(file.responsable)}
                                     </span>
                                   </div>
                                 )}
@@ -352,7 +352,7 @@ export function AnnualCalendarTable({ auditFiles }: AnnualCalendarTableProps) {
                                   <div className="text-[9px] text-muted-foreground leading-tight break-words">
                                     <span className="font-semibold">A:</span>{" "}
                                     <span className="break-all" title={file.auditor}>
-                                      {file.auditor}
+                                      {shortenName(file.auditor)}
                                     </span>
                                   </div>
                                 )}

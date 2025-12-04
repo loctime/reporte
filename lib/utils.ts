@@ -10,6 +10,28 @@ export function cn(...inputs: ClassValue[]) {
  * @param date - Puede ser un Date, un número serial de Excel, o un string de fecha
  * @returns String formateado como DD/MM/YYYY
  */
+export function shortenName(fullName: string): string {
+  if (!fullName || fullName.trim().length === 0) return fullName
+  
+  const trimmed = fullName.trim()
+  
+  // Si tiene títulos académicos (Mg., Ing., Dr., etc.), mantenerlos
+  const titleMatch = trimmed.match(/^(Mg\.|Ing\.|Dr\.|Lic\.|Prof\.|Prof\.\s+Ing\.|Mg\.\s+Ing\.)\s*(.+)$/i)
+  
+  if (titleMatch) {
+    const title = titleMatch[1]
+    const namePart = titleMatch[2]
+    // Tomar solo el apellido (última palabra) y agregar el título
+    const parts = namePart.split(/\s+/)
+    const lastName = parts[parts.length - 1]
+    return `${title} ${lastName}`
+  }
+  
+  // Si no tiene título, tomar solo el apellido (última palabra)
+  const parts = trimmed.split(/\s+/)
+  return parts[parts.length - 1] || trimmed
+}
+
 export function formatDate(date: Date | number | string | null | undefined): string {
   if (!date) {
     return ""
