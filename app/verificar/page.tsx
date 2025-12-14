@@ -13,8 +13,8 @@ import { parseExcelFile } from "@/lib/excel-parser"
 import { cn, formatDate } from "@/lib/utils"
 import type { AuditFile } from "@/lib/types"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ColumnConfigurator } from "@/components/column-configurator"
-import { loadColumnConfig, clearColumnConfig, type ColumnConfig } from "@/lib/column-config"
+import { ExcelConfiguratorNew } from "@/components/excel-configurator-new"
+import { loadExcelConfig, clearExcelConfig, type ExcelConfig } from "@/lib/excel-config"
 
 interface ExcelDebugData {
   rawData: any[][]
@@ -41,11 +41,11 @@ export default function VerificarPage() {
   const [debugData, setDebugData] = useState<ExcelDebugData | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [showConfigurator, setShowConfigurator] = useState(false)
-  const [savedConfig, setSavedConfig] = useState<ColumnConfig | null>(null)
+  const [savedConfig, setSavedConfig] = useState<ExcelConfig | null>(null)
 
   // Cargar configuración solo en el cliente para evitar errores de hidratación
   useEffect(() => {
-    setSavedConfig(loadColumnConfig())
+    setSavedConfig(loadExcelConfig())
   }, [])
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -63,15 +63,11 @@ export default function VerificarPage() {
       const rawData: any[][] = XLSX.utils.sheet_to_json(firstSheet, { header: 1 })
 
       // Verificar si hay configuración guardada
-      const config = loadColumnConfig()
+      const config = loadExcelConfig()
       setSavedConfig(config)
 
-      // Si no hay configuración y encontramos la fila de encabezados, mostrar configurador
-      const headerRowIndex = rawData.findIndex(
-        (row) => row && row.some((cell: any) => String(cell).includes("CUMPLE") || String(cell).includes("ITEMS")),
-      )
-
-      if (!config && headerRowIndex !== -1) {
+      // Si no hay configuración, mostrar configurador
+      if (!config) {
         setShowConfigurator(true)
       }
 
@@ -151,7 +147,7 @@ export default function VerificarPage() {
     setShowConfigurator(false)
   }
 
-  const handleConfigComplete = async (config: ColumnConfig) => {
+  const handleConfigComplete = async (config: ExcelConfig) => {
     setSavedConfig(config)
     setShowConfigurator(false)
     // Re-procesar el archivo con la nueva configuración
@@ -168,12 +164,8 @@ export default function VerificarPage() {
     }
   }
 
-  const handleConfigSkip = () => {
-    setShowConfigurator(false)
-  }
-
   const handleReconfigure = () => {
-    clearColumnConfig()
+    clearExcelConfig()
     setSavedConfig(null)
     setShowConfigurator(true)
   }
@@ -243,13 +235,12 @@ export default function VerificarPage() {
             </CardContent>
           </Card>
 
-          {showConfigurator && debugData && debugData.metadata.headerRowIndex !== null && (
-            <ColumnConfigurator
+          {showConfigurator && debugData && (
+            <ExcelConfiguratorNew
               rawData={debugData.rawData}
-              headerRowIndex={debugData.metadata.headerRowIndex}
-              onConfigComplete={handleConfigComplete}
-              onSkip={handleConfigSkip}
               sheet={debugData.sheet}
+              onConfigComplete={handleConfigComplete}
+              onCancel={() => setShowConfigurator(false)}
             />
           )}
 
@@ -260,11 +251,12 @@ export default function VerificarPage() {
                   <div className="flex items-center gap-3">
                     <CheckCircle2 className="h-5 w-5 text-success" />
                     <div>
-                      <p className="font-semibold">Configuración de Columnas Activa</p>
+                      <p className="font-semibold">Configuración de Excel Activa</p>
                       <p className="text-sm text-muted-foreground">
-                        Pregunta: Col {savedConfig.pregunta + 1} | Cumple: Col {savedConfig.cumple + 1} | Cumple
-                        Parcial: Col {savedConfig.cumpleParcial + 1} | No Cumple: Col {savedConfig.noCumple + 1} | No
-                        Aplica: Col {savedConfig.noAplica + 1}
+                        Pregunta: Col {savedConfig.columnMapping.pregunta + 1} | Cumple: Col {savedConfig.columnMapping.cumple + 1} | Cumple
+                        Parcial: Col {savedConfig.columnMapping.cumpleParcial + 1} | No Cumple: Col {savedConfig.columnMapping.noCumple + 1} | No
+                        Aplica: Col {savedConfig.columnMapping.noAplica + 1}
+                        {savedConfig.customFields.length > 0 && ` | ${savedConfig.customFields.length} campos personalizados`}
                       </p>
                     </div>
                   </div>
