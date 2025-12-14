@@ -1,12 +1,14 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
 import * as XLSX from "xlsx"
+import { extractExcelStylesWithExcelJS, type ExcelFormatData } from "@/lib/excel-styles-extractor"
 
 interface ExcelViewerProps {
   rawData: any[][]
   sheet?: XLSX.WorkSheet
+  file?: File // Archivo Excel opcional para usar ExcelJS
   onCellClick?: (row: number, col: number) => void
   selectedCells?: Array<{ row: number; col: number }>
   highlightedCells?: Array<{ row: number; col: number; label?: string }>
@@ -21,20 +23,59 @@ interface ExcelViewerProps {
 export function ExcelViewer({
   rawData,
   sheet,
+  file,
   onCellClick,
   selectedCells = [],
   highlightedCells = [],
   maxRows = 100,
   className,
 }: ExcelViewerProps) {
-  // Extraer información de formato del Excel
+  const [exceljsFormat, setExceljsFormat] = useState<ExcelFormatData | null>(null)
+  const [isLoadingStyles, setIsLoadingStyles] = useState(false)
+
+  // Cargar estilos con ExcelJS si hay un archivo
+  // Nota: ExcelJS no funciona en el navegador, así que por ahora usamos XLSX
+  useEffect(() => {
+    if (file) {
+      setIsLoadingStyles(true)
+      // Intentar cargar estilos, pero si falla, usar XLSX como fallback
+      extractExcelStylesWithExcelJS(file)
+        .then((format) => {
+          setExceljsFormat(format)
+          setIsLoadingStyles(false)
+        })
+        .catch((error) => {
+          // ExcelJS no está disponible en el navegador, usar XLSX
+          console.log("Usando XLSX para extraer estilos (ExcelJS no disponible en navegador)")
+          setIsLoadingStyles(false)
+          setExceljsFormat(null)
+        })
+    } else {
+      setExceljsFormat(null)
+    }
+  }, [file])
+
+  // Extraer información de formato del Excel (fallback a XLSX)
   const excelFormat = useMemo(() => {
+    // Si tenemos datos de ExcelJS, usarlos (son más completos)
+    if (exceljsFormat) {
+      return {
+        mergedCells: exceljsFormat.mergedCells,
+        columnWidths: exceljsFormat.columnWidths,
+        cellStyles: exceljsFormat.cellStyles,
+        cellValues: exceljsFormat.cellValues,
+        rowHeights: exceljsFormat.rowHeights,
+      }
+    }
+
+    // Fallback a XLSX
     if (!sheet) {
       return {
         mergedCells: [],
         columnWidths: {} as Record<number, number>,
         cellStyles: {} as Record<string, any>,
         cellValues: {} as Record<string, any>,
+        rowHeights: {},
       }
     }
 
@@ -72,13 +113,20 @@ export function ExcelViewer({
       if (key.startsWith("!")) return
       const cell = sheet[key]
       if (cell) {
+        // Extraer estilo completo (puede estar en cell.s o en el workbook styles)
         cellStyles[key] = cell.s || {}
         cellValues[key] = cell.v
+        
+        // Si hay referencia a estilos del workbook, intentar obtenerlos
+        if (cell.t === "s" && typeof cell.v === "number") {
+          // Es una celda de texto compartido
+          // El valor real está en sharedStrings
+        }
       }
     })
 
-    return { mergedCells, columnWidths, cellStyles, cellValues }
-  }, [sheet])
+    return { mergedCells, columnWidths, cellStyles, cellValues, rowHeights: {} }
+  }, [sheet, exceljsFormat])
 
   // Función para convertir índice de columna a notación Excel (A, B, C, ..., Z, AA, AB, ...)
   const colIndexToExcel = (colIndex: number): string => {
@@ -114,37 +162,128 @@ export function ExcelViewer({
     return { isMerged: false, isStartCell: false, rowSpan: 1, colSpan: 1 }
   }
 
+  // Función para convertir color Excel a CSS
+  const excelColorToCSS = (color: any): string | undefined => {
+    if (!color) return undefined
+
+    // RGB directo
+    if (color.rgb) {
+      return `#${color.rgb}`
+    }
+
+    // ARGB (formato Excel: AARRGGBB)
+    if (color.argb) {
+      const argb = color.argb
+      // Si tiene formato completo AARRGGBB, tomar solo RGB
+      if (argb.length === 8) {
+        return `#${argb.slice(2)}`
+      }
+      return `#${argb}`
+    }
+
+    // Tema (referencia a tema de Excel)
+    if (color.theme !== undefined) {
+      // Mapeo básico de temas comunes de Excel
+      const themeColors: Record<number, string> = {
+        0: "#000000", // Texto 1
+        1: "#FFFFFF", // Fondo 1
+        2: "#FF0000", // Acento 1
+        3: "#00FF00", // Acento 2
+        4: "#0000FF", // Acento 3
+        5: "#FFFF00", // Acento 4
+        6: "#FF00FF", // Acento 5
+        7: "#00FFFF", // Acento 6
+      }
+      return themeColors[color.theme] || undefined
+    }
+
+    return undefined
+  }
+
   // Función para obtener el estilo de una celda
   const getCellStyle = (rowIndex: number, colIndex: number) => {
     const cellAddress = getCellAddress(rowIndex, colIndex)
     const style = excelFormat.cellStyles[cellAddress] || {}
 
-    const cssStyle: React.CSSProperties = {
-      backgroundColor: style.fill?.fgColor?.rgb
-        ? `#${style.fill.fgColor.rgb}`
-        : style.fill?.fgColor?.argb
-          ? `#${style.fill.fgColor.argb.slice(2)}`
-          : undefined,
-      color: style.font?.color?.rgb
-        ? `#${style.font.color.rgb}`
-        : style.font?.color?.argb
-          ? `#${style.font.color.argb.slice(2)}`
-          : undefined,
-      fontWeight: style.font?.bold ? "bold" : undefined,
+    // Si usamos ExcelJS, los estilos ya vienen procesados
+    if (exceljsFormat) {
+      const exceljsStyle = exceljsFormat.cellStyles[cellAddress]
+      if (exceljsStyle) {
+        const borderStyle: React.CSSProperties = {}
+        if (exceljsStyle.borders) {
+          Object.entries(exceljsStyle.borders).forEach(([side, border]) => {
+            borderStyle[`border${side.charAt(0).toUpperCase() + side.slice(1)}` as keyof React.CSSProperties] = 
+              `${border.width} solid ${border.color}`
+          })
+        }
+
+        return {
+          backgroundColor: exceljsStyle.backgroundColor,
+          color: exceljsStyle.textColor,
+          fontWeight: exceljsStyle.fontWeight,
+          fontStyle: exceljsStyle.fontStyle,
+          fontSize: exceljsStyle.fontSize,
+          fontFamily: exceljsStyle.fontFamily,
+          textAlign: exceljsStyle.textAlign as any,
+          verticalAlign: exceljsStyle.verticalAlign as any,
+          textDecoration: exceljsStyle.textDecoration,
+          ...borderStyle,
+        }
+      }
+    }
+
+    // Fallback a XLSX (código anterior)
+    let backgroundColor: string | undefined
+    if (style.fill) {
+      if (style.fill.fgColor) {
+        backgroundColor = excelColorToCSS(style.fill.fgColor)
+      } else if (style.fill.bgColor) {
+        backgroundColor = excelColorToCSS(style.fill.bgColor)
+      }
+    }
+
+    const textColor = style.font?.color ? excelColorToCSS(style.font.color) : undefined
+
+    const borderStyle: React.CSSProperties = {}
+    if (style.border) {
+      const borders = ["top", "bottom", "left", "right"] as const
+      borders.forEach((side) => {
+        const border = style.border[side]
+        if (border && border.style) {
+          const borderColor = border.color ? excelColorToCSS(border.color) : "#000000"
+          const borderWidth = border.style === "thin" ? "1px" : 
+                            border.style === "medium" ? "2px" :
+                            border.style === "thick" ? "3px" :
+                            border.style === "double" ? "3px" : "1px"
+          
+          borderStyle[`border${side.charAt(0).toUpperCase() + side.slice(1)}`] = `${borderWidth} solid ${borderColor}`
+        }
+      })
+    }
+
+    return {
+      backgroundColor,
+      color: textColor,
+      fontWeight: style.font?.bold ? "bold" : style.font?.weight || undefined,
       fontStyle: style.font?.italic ? "italic" : undefined,
       textAlign: style.alignment?.horizontal || "left",
       verticalAlign: style.alignment?.vertical || "top",
       fontSize: style.font?.sz ? `${style.font.sz}pt` : undefined,
-      textDecoration: style.font?.underline ? "underline" : undefined,
+      textDecoration: style.font?.underline ? "underline" : 
+                     style.font?.strike ? "line-through" : undefined,
+      fontFamily: style.font?.name || undefined,
+      ...borderStyle,
     }
-
-    return cssStyle
   }
 
   // Función para obtener el valor de una celda (con formato)
   const getCellValue = (rowIndex: number, colIndex: number): string => {
     const cellAddress = getCellAddress(rowIndex, colIndex)
-    const rawValue = excelFormat.cellValues[cellAddress] ?? rawData[rowIndex]?.[colIndex]
+    
+    // Priorizar valores de ExcelJS si están disponibles
+    const rawValue = exceljsFormat?.cellValues[cellAddress] ?? 
+                     excelFormat.cellValues[cellAddress] ?? 
+                     rawData[rowIndex]?.[colIndex]
 
     if (rawValue === null || rawValue === undefined || rawValue === "") {
       return ""
@@ -215,6 +354,25 @@ export function ExcelViewer({
 
                   // Si está en un merge pero no es la celda inicial, renderizar celda vacía
                   if (mergedInfo.isMerged && !mergedInfo.isStartCell) {
+                    // Encontrar el merge que contiene esta celda
+                    const containingMerge = excelFormat.mergedCells.find(
+                      (m) => 
+                        rowIndex >= m.s.r && rowIndex <= m.e.r &&
+                        colIndex >= m.s.c && colIndex <= m.e.c
+                    )
+                    
+                    // Obtener el estilo de la celda inicial del merge para mantener consistencia
+                    let mergedBgColor: string | undefined
+                    if (containingMerge) {
+                      const startCellAddress = getCellAddress(containingMerge.s.r, containingMerge.s.c)
+                      const mergedStyle = excelFormat.cellStyles[startCellAddress] || {}
+                      mergedBgColor = mergedStyle.fill?.fgColor 
+                        ? excelColorToCSS(mergedStyle.fill.fgColor)
+                        : mergedStyle.fill?.bgColor
+                          ? excelColorToCSS(mergedStyle.fill.bgColor)
+                          : undefined
+                    }
+                    
                     return (
                       <div
                         key={colIndex}
@@ -223,6 +381,7 @@ export function ExcelViewer({
                           minWidth: `${getColumnWidth(colIndex)}px`,
                           width: `${getColumnWidth(colIndex)}px`,
                           height: "32px",
+                          backgroundColor: mergedBgColor,
                         }}
                       />
                     )
@@ -251,14 +410,19 @@ export function ExcelViewer({
                     }
                   }
 
+                  // Aplicar bordes por defecto solo si no hay bordes definidos en el estilo
+                  const hasCustomBorders = cellStyle.borderTop || cellStyle.borderBottom || 
+                                          cellStyle.borderLeft || cellStyle.borderRight
+                  
                   return (
                     <div
                       key={colIndex}
                       className={cn(
-                        "border-r border-b border-gray-300 p-1 text-xs overflow-hidden relative",
-                        isSelected && "ring-2 ring-blue-500 ring-offset-1 bg-blue-50",
-                        highlighted && !isSelected && "bg-yellow-100 ring-1 ring-yellow-400",
-                        onCellClick && "cursor-pointer hover:bg-gray-50",
+                        "p-1 text-xs overflow-hidden relative",
+                        !hasCustomBorders && "border-r border-b border-gray-300",
+                        isSelected && "ring-2 ring-blue-500 ring-offset-1",
+                        highlighted && !isSelected && "ring-1 ring-yellow-400",
+                        onCellClick && "cursor-pointer hover:opacity-80",
                         mergedInfo.isMerged && mergedInfo.isStartCell && "flex items-center"
                       )}
                       style={{
@@ -266,11 +430,19 @@ export function ExcelViewer({
                         width: `${totalWidth}px`,
                         height: "32px",
                         ...cellStyle,
+                        // Si está seleccionada o resaltada, mantener el color de fondo pero con overlay
+                        ...(isSelected && !cellStyle.backgroundColor && { backgroundColor: "rgba(59, 130, 246, 0.1)" }),
+                        ...(highlighted && !isSelected && !cellStyle.backgroundColor && { backgroundColor: "rgba(250, 204, 21, 0.2)" }),
                       }}
                       onClick={() => onCellClick?.(rowIndex, colIndex)}
                       title={highlighted?.label || cellValue || `Fila ${rowIndex + 1}, Col ${colIndex + 1}`}
                     >
-                      <div className="truncate w-full" title={cellValue}>
+                      <div className="truncate w-full" title={cellValue} style={{ 
+                        color: cellStyle.color,
+                        fontWeight: cellStyle.fontWeight,
+                        fontSize: cellStyle.fontSize,
+                        textAlign: cellStyle.textAlign as any,
+                      }}>
                         {cellValue}
                       </div>
                       {highlighted?.label && (

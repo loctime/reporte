@@ -37,6 +37,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 interface ExcelConfiguratorNewProps {
   rawData: any[][]
   sheet?: XLSX.WorkSheet
+  file?: File // Archivo Excel para extraer estilos con ExcelJS
   onConfigComplete: (config: ExcelConfig) => void
   onCancel?: () => void
 }
@@ -50,6 +51,7 @@ type ConfigMode = "columns" | "fields" | "complete"
 export function ExcelConfiguratorNew({
   rawData,
   sheet,
+  file,
   onConfigComplete,
   onCancel,
 }: ExcelConfiguratorNewProps) {
@@ -402,6 +404,7 @@ export function ExcelConfiguratorNew({
           <ExcelViewer
             rawData={rawData}
             sheet={sheet}
+            file={file}
             onCellClick={handleCellClick}
             selectedCells={
               selectedCell ? [selectedCell] : selectedColumn !== null

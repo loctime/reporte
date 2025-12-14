@@ -8,8 +8,8 @@ import { Upload, FileSpreadsheet, X, CheckCircle2, AlertCircle, Loader2, Setting
 import { parseExcelFile } from "@/lib/excel-parser"
 import type { AuditFile } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { ColumnConfigurator } from "@/components/column-configurator"
-import { loadColumnConfig, clearColumnConfig, type ColumnConfig } from "@/lib/column-config"
+import { ExcelConfiguratorNew } from "@/components/excel-configurator-new"
+import { loadExcelConfig, clearExcelConfig, type ExcelConfig } from "@/lib/excel-config"
 import * as XLSX from "xlsx"
 import {
   AlertDialog,
@@ -40,7 +40,7 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
   const [configFile, setConfigFile] = useState<File | null>(null)
   const [rawData, setRawData] = useState<any[][]>([])
   const [headerRowIndex, setHeaderRowIndex] = useState<number>(-1)
-  const [savedConfig, setSavedConfig] = useState<ColumnConfig | null>(null)
+  const [savedConfig, setSavedConfig] = useState<ExcelConfig | null>(null)
   const [sheet, setSheet] = useState<XLSX.WorkSheet | undefined>(undefined)
   const [errorDialog, setErrorDialog] = useState<{
     open: boolean
@@ -51,14 +51,14 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
 
   useEffect(() => {
     // Cargar configuración guardada al montar
-    const config = loadColumnConfig()
+    const config = loadExcelConfig()
     setSavedConfig(config)
   }, [])
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       // Verificar si hay configuración guardada
-      const config = loadColumnConfig()
+      const config = loadExcelConfig()
       setSavedConfig(config)
 
       // Si no hay configuración, leer el primer archivo para mostrar el configurador
@@ -68,17 +68,17 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
           const data = await firstFile.arrayBuffer()
           const workbook = XLSX.read(data, { type: "array" })
           const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
-          const raw = XLSX.utils.sheet_to_json(firstSheet, { header: 1 })
+          const raw = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as any[][]
 
           // Encontrar la fila de encabezados
           const headerIndex = raw.findIndex(
             (row: any) =>
-              row && row.some((cell: any) => String(cell).includes("CUMPLE") || String(cell).includes("ITEMS")),
+              row && Array.isArray(row) && row.some((cell: any) => String(cell).includes("CUMPLE") || String(cell).includes("ITEMS")),
           )
 
           if (headerIndex !== -1) {
             setConfigFile(firstFile)
-            setRawData(raw)
+            setRawData(raw as any[][])
             setHeaderRowIndex(headerIndex)
             setSheet(firstSheet) // Guardar el objeto sheet completo para formato
             setShowConfigurator(true)
@@ -178,7 +178,7 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
     }
   }
 
-  const handleConfigComplete = async (config: ColumnConfig) => {
+  const handleConfigComplete = async (config: ExcelConfig) => {
     setSavedConfig(config)
     setShowConfigurator(false)
     // Procesar el archivo que estaba esperando configuración
@@ -204,7 +204,7 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
   }
 
   const handleReconfigure = () => {
-    clearColumnConfig()
+    clearExcelConfig()
     setSavedConfig(null)
     if (configFile) {
       setShowConfigurator(true)
@@ -236,9 +236,11 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
               <div className="flex items-center gap-3">
                 <CheckCircle2 className="h-5 w-5 text-success" />
                 <div>
-                  <p className="font-semibold">Configuración de Columnas Activa</p>
+                  <p className="font-semibold">Configuración de Excel Activa</p>
                   <p className="text-sm text-muted-foreground">
-                    El sistema usará la configuración guardada para procesar los archivos
+                    {savedConfig.columnMapping.pregunta >= 0 && `Pregunta: Col ${savedConfig.columnMapping.pregunta + 1} | `}
+                    {savedConfig.columnMapping.cumple >= 0 && `Cumple: Col ${savedConfig.columnMapping.cumple + 1} | `}
+                    {savedConfig.customFields.length > 0 && `${savedConfig.customFields.length} campos personalizados`}
                   </p>
                 </div>
               </div>
@@ -251,13 +253,13 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
         </Card>
       )}
 
-      {showConfigurator && rawData.length > 0 && headerRowIndex !== -1 && (
-        <ColumnConfigurator
+      {showConfigurator && rawData.length > 0 && (
+        <ExcelConfiguratorNew
           rawData={rawData}
-          headerRowIndex={headerRowIndex}
-          onConfigComplete={handleConfigComplete}
-          onSkip={handleConfigSkip}
           sheet={sheet}
+          file={configFile || undefined}
+          onConfigComplete={handleConfigComplete}
+          onCancel={handleConfigSkip}
         />
       )}
 
