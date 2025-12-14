@@ -46,11 +46,21 @@ export async function extractExcelStylesWithExcelJS(file: File): Promise<ExcelFo
     if (response.ok) {
       const data = await response.json()
       const styleCount = Object.keys(data.cellStyles || {}).length
-      console.log("✅ Estilos extraídos exitosamente con ExcelJS:", styleCount, "celdas con estilos")
+      const mergedCount = (data.mergedCells || []).length
+      console.log(`✅ Estilos extraídos exitosamente con ExcelJS: ${styleCount} celdas con estilos, ${mergedCount} celdas combinadas`)
+      
+      // Devolver los datos incluso si no hay estilos, porque puede haber celdas combinadas y valores
       return data as ExcelFormatData
     } else {
       const errorText = await response.text()
-      console.warn("⚠️ API route respondió con error:", response.status, errorText.substring(0, 200))
+      let errorMessage = errorText
+      try {
+        const errorJson = JSON.parse(errorText)
+        errorMessage = errorJson.error || errorText
+      } catch {
+        // Si no es JSON, usar el texto tal cual
+      }
+      console.warn("⚠️ API route respondió con error:", response.status, errorMessage.substring(0, 200))
     }
   } catch (error) {
     console.warn("⚠️ Error al llamar al API route:", error instanceof Error ? error.message : String(error))

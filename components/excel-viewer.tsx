@@ -279,18 +279,57 @@ export function ExcelViewer({
 
   // Función para obtener el valor de una celda (con formato)
   const getCellValue = (rowIndex: number, colIndex: number): string => {
+    // Verificar si esta celda está en un merged range
+    const mergedInfo = getMergedCellInfo(rowIndex, colIndex)
+    
+    // Si está en un merge pero NO es la celda inicial, devolver cadena vacía
+    // El valor solo debe mostrarse en la celda inicial del merge
+    if (mergedInfo.isMerged && !mergedInfo.isStartCell) {
+      return ""
+    }
+    
+    // Obtener la dirección de la celda
     const cellAddress = getCellAddress(rowIndex, colIndex)
     
-    // Priorizar valores de ExcelJS si están disponibles
-    const rawValue = exceljsFormat?.cellValues[cellAddress] ?? 
-                     excelFormat.cellValues[cellAddress] ?? 
-                     rawData[rowIndex]?.[colIndex]
+    // Priorizar valores de ExcelJS si están disponibles (estos ya tienen el valor correcto en la celda inicial)
+    let rawValue = exceljsFormat?.cellValues[cellAddress] ?? 
+                   excelFormat.cellValues[cellAddress]
+    
+    // Si no hay valor en los formatos extraídos, usar rawData SOLO si no está en un merge
+    // (porque rawData puede tener valores duplicados en celdas combinadas)
+    if ((rawValue === null || rawValue === undefined || rawValue === "") && !mergedInfo.isMerged) {
+      rawValue = rawData[rowIndex]?.[colIndex]
+    }
 
     if (rawValue === null || rawValue === undefined || rawValue === "") {
       return ""
     }
 
-    // Si es un número y tiene formato, intentar mantener el formato
+    // Si es un objeto, intentar extraer el valor útil
+    if (typeof rawValue === "object") {
+      // Si tiene una propiedad 'result', usarla (valor calculado de fórmula)
+      if ("result" in rawValue && rawValue.result !== null && rawValue.result !== undefined) {
+        rawValue = rawValue.result
+      }
+      // Si tiene una propiedad 'text', usarla
+      else if ("text" in rawValue) {
+        rawValue = rawValue.text
+      }
+      // Si tiene una propiedad 'value', usarla
+      else if ("value" in rawValue) {
+        rawValue = rawValue.value
+      }
+      // Si es un array, unir los elementos
+      else if (Array.isArray(rawValue)) {
+        rawValue = rawValue.map(v => String(v)).join("")
+      }
+      // Último recurso: convertir a string
+      else {
+        rawValue = String(rawValue)
+      }
+    }
+
+    // Convertir a string final
     if (typeof rawValue === "number") {
       return String(rawValue)
     }
@@ -301,6 +340,11 @@ export function ExcelViewer({
   // Función para obtener el ancho de columna
   const getColumnWidth = (colIndex: number): number => {
     return excelFormat.columnWidths[colIndex] || 80
+  }
+
+  // Función para obtener la altura de fila
+  const getRowHeight = (rowIndex: number): number => {
+    return excelFormat.rowHeights[rowIndex] || 32
   }
 
   // Calcular el número máximo de columnas
@@ -341,10 +385,21 @@ export function ExcelViewer({
 
           {/* Filas del Excel */}
           {rowsToShow.map((row, rowIndex) => {
+            // Verificar si esta fila está dentro de un merge vertical (pero no es la fila inicial)
+            const isInVerticalMerge = excelFormat.mergedCells.some(merge => 
+              rowIndex > merge.s.r && rowIndex <= merge.e.r
+            )
+            
+            // Si está en un merge vertical pero no es la fila inicial, usar altura normal
+            const rowHeight = getRowHeight(rowIndex)
+            
             return (
-              <div key={rowIndex} className="flex">
+              <div key={rowIndex} className="flex" style={{ height: `${rowHeight}px`, minHeight: `${rowHeight}px` }}>
                 {/* Número de fila (sticky) */}
-                <div className="bg-gray-100 border-r border-b border-gray-400 min-w-[50px] w-[50px] h-8 flex items-center justify-center text-xs font-medium text-gray-600 sticky left-0 z-10">
+                <div 
+                  className="bg-gray-100 border-r border-b border-gray-400 min-w-[50px] w-[50px] flex items-center justify-center text-xs font-medium text-gray-600 sticky left-0 z-10"
+                  style={{ height: `${rowHeight}px`, minHeight: `${rowHeight}px` }}
+                >
                   {rowIndex + 1}
                 </div>
 
@@ -353,7 +408,7 @@ export function ExcelViewer({
                   // Verificar si esta celda está en un merged range
                   const mergedInfo = getMergedCellInfo(rowIndex, colIndex)
 
-                  // Si está en un merge pero no es la celda inicial, renderizar celda vacía
+                  // Si está en un merge pero NO es la celda inicial, renderizar celda vacía (sin texto)
                   if (mergedInfo.isMerged && !mergedInfo.isStartCell) {
                     // Encontrar el merge que contiene esta celda
                     const containingMerge = excelFormat.mergedCells.find(
@@ -366,13 +421,30 @@ export function ExcelViewer({
                     let mergedBgColor: string | undefined
                     if (containingMerge) {
                       const startCellAddress = getCellAddress(containingMerge.s.r, containingMerge.s.c)
-                      const mergedStyle = excelFormat.cellStyles[startCellAddress] || {}
-                      mergedBgColor = mergedStyle.fill?.fgColor 
-                        ? excelColorToCSS(mergedStyle.fill.fgColor)
-                        : mergedStyle.fill?.bgColor
-                          ? excelColorToCSS(mergedStyle.fill.bgColor)
-                          : undefined
+                      
+                      // Priorizar estilos de ExcelJS si están disponibles
+                      if (exceljsFormat) {
+                        const exceljsStyle = exceljsFormat.cellStyles[startCellAddress]
+                        if (exceljsStyle?.backgroundColor) {
+                          mergedBgColor = exceljsStyle.backgroundColor
+                        }
+                      }
+                      
+                      // Fallback a estilos de XLSX
+                      if (!mergedBgColor) {
+                        const mergedStyle = excelFormat.cellStyles[startCellAddress] || {}
+                        mergedBgColor = mergedStyle.fill?.fgColor 
+                          ? excelColorToCSS(mergedStyle.fill.fgColor)
+                          : mergedStyle.fill?.bgColor
+                            ? excelColorToCSS(mergedStyle.fill.bgColor)
+                            : mergedStyle.backgroundColor
+                              ? excelColorToCSS(mergedStyle.backgroundColor)
+                              : undefined
+                      }
                     }
+                    
+                    // Calcular altura de esta celda (puede ser parte de un merge vertical)
+                    const cellRowHeight = getRowHeight(rowIndex)
                     
                     return (
                       <div
@@ -381,7 +453,8 @@ export function ExcelViewer({
                         style={{
                           minWidth: `${getColumnWidth(colIndex)}px`,
                           width: `${getColumnWidth(colIndex)}px`,
-                          height: "32px",
+                          height: `${cellRowHeight}px`,
+                          minHeight: `${cellRowHeight}px`,
                           backgroundColor: mergedBgColor,
                         }}
                       />
@@ -403,11 +476,21 @@ export function ExcelViewer({
 
                   const colWidth = getColumnWidth(colIndex)
                   let totalWidth = colWidth
+                  let totalHeight = 32 // Altura por defecto
+                  
                   if (mergedInfo.isMerged && mergedInfo.isStartCell) {
-                    // Calcular ancho total de celdas combinadas
+                    // Calcular ancho total de celdas combinadas horizontalmente
                     totalWidth = 0
                     for (let c = colIndex; c <= colIndex + mergedInfo.colSpan - 1; c++) {
                       totalWidth += getColumnWidth(c)
+                    }
+                    
+                    // Calcular altura total de celdas combinadas verticalmente
+                    totalHeight = 0
+                    for (let r = rowIndex; r <= rowIndex + mergedInfo.rowSpan - 1; r++) {
+                      // Usar altura de fila si está disponible, sino 32px por defecto
+                      const rowHeight = excelFormat.rowHeights[r] || 32
+                      totalHeight += rowHeight
                     }
                   }
 
@@ -424,12 +507,13 @@ export function ExcelViewer({
                         isSelected && "ring-2 ring-blue-500 ring-offset-1",
                         highlighted && !isSelected && "ring-1 ring-yellow-400",
                         onCellClick && "cursor-pointer hover:opacity-80",
-                        mergedInfo.isMerged && mergedInfo.isStartCell && "flex items-center"
+                        mergedInfo.isMerged && mergedInfo.isStartCell && "flex items-center justify-center"
                       )}
                       style={{
                         minWidth: `${totalWidth}px`,
                         width: `${totalWidth}px`,
-                        height: "32px",
+                        height: `${totalHeight}px`,
+                        minHeight: `${totalHeight}px`,
                         ...cellStyle,
                         // Si está seleccionada o resaltada, mantener el color de fondo pero con overlay
                         ...(isSelected && !cellStyle.backgroundColor && { backgroundColor: "rgba(59, 130, 246, 0.1)" }),
@@ -443,6 +527,7 @@ export function ExcelViewer({
                         fontWeight: cellStyle.fontWeight,
                         fontSize: cellStyle.fontSize,
                         textAlign: cellStyle.textAlign as any,
+                        verticalAlign: cellStyle.verticalAlign as any,
                       }}>
                         {cellValue}
                       </div>

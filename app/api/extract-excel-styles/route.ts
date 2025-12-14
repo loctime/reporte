@@ -2,14 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 
 export const runtime = "nodejs"
 
-// Importar ExcelJS dinámicamente para evitar problemas de resolución
-let ExcelJS: any
-try {
-  ExcelJS = require("exceljs")
-} catch (error) {
-  console.error("Error cargando exceljs:", error)
-  throw new Error("exceljs no está disponible")
-}
+// Importar ExcelJS - usar import estático ya que estamos en el servidor
+import ExcelJS from "exceljs"
 
 export async function POST(request: NextRequest) {
   try {
@@ -179,13 +173,64 @@ export async function POST(request: NextRequest) {
           })
         }
 
-        // Valor de la celda
-        if (cell.value !== null && cell.value !== undefined) {
-          if (typeof cell.value === "object" && "richText" in cell.value) {
-            cellValues[cellAddress] = cell.value.richText?.[0]?.text || ""
-          } else {
-            cellValues[cellAddress] = cell.value
+        // Valor de la celda - usar cell.result (valor calculado) si está disponible, sino cell.value
+        // cell.result contiene el valor calculado de fórmulas, mientras que cell.value puede ser la fórmula misma
+        let cellValue: any = cell.result !== null && cell.result !== undefined ? cell.result : cell.value
+        
+        if (cellValue !== null && cellValue !== undefined) {
+          // Si es un objeto con richText (texto enriquecido)
+          if (typeof cellValue === "object" && "richText" in cellValue) {
+            cellValue = cellValue.richText?.map((rt: any) => rt.text || "").join("") || ""
           }
+          // Si es una fecha
+          else if (cellValue instanceof Date) {
+            // Formatear fecha según el formato de la celda si está disponible
+            const dateValue = cellValue
+            // Intentar usar el formato de Excel si está disponible
+            if (cell.numFmt && cell.numFmt.includes("d") && cell.numFmt.includes("m")) {
+              // Formato personalizado de fecha
+              const day = String(dateValue.getDate()).padStart(2, "0")
+              const month = String(dateValue.getMonth() + 1).padStart(2, "0")
+              const year = dateValue.getFullYear()
+              cellValue = `${day}/${month}/${year}`
+            } else {
+              cellValue = dateValue.toISOString().split("T")[0] // Formato YYYY-MM-DD por defecto
+            }
+          }
+          // Si es un objeto genérico, intentar extraer propiedades útiles
+          else if (typeof cellValue === "object" && !Array.isArray(cellValue)) {
+            // Intentar obtener el valor numérico si existe
+            if ("result" in cellValue && cellValue.result !== null && cellValue.result !== undefined) {
+              cellValue = cellValue.result
+            } else if ("text" in cellValue) {
+              cellValue = cellValue.text
+            } else if ("value" in cellValue) {
+              cellValue = cellValue.value
+            } else {
+              // Si no hay propiedades útiles, intentar convertir a string de forma más inteligente
+              try {
+                cellValue = JSON.stringify(cellValue)
+              } catch {
+                cellValue = String(cellValue)
+              }
+            }
+          }
+          // Si es un array, unir los elementos
+          else if (Array.isArray(cellValue)) {
+            cellValue = cellValue.map(v => {
+              if (typeof v === "object" && v !== null && "text" in v) {
+                return v.text
+              }
+              return String(v)
+            }).join("")
+          }
+          
+          // Convertir a string solo si no es un número
+          if (typeof cellValue !== "number" && typeof cellValue !== "string") {
+            cellValue = String(cellValue)
+          }
+          
+          cellValues[cellAddress] = cellValue
         }
 
         if (Object.keys(style).length > 0) {
@@ -194,17 +239,24 @@ export async function POST(request: NextRequest) {
       })
     })
 
-    return NextResponse.json({
+    const result = {
       mergedCells,
       columnWidths,
       cellStyles,
       cellValues,
       rowHeights,
-    })
+    }
+    
+    console.log(`✅ Estilos extraídos: ${Object.keys(cellStyles).length} celdas con estilos, ${mergedCells.length} celdas combinadas`)
+    
+    return NextResponse.json(result)
   } catch (error) {
-    console.error("Error extrayendo estilos:", error)
+    console.error("❌ Error extrayendo estilos:", error)
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Error desconocido al extraer estilos" },
+      { 
+        error: error instanceof Error ? error.message : "Error desconocido al extraer estilos",
+        details: error instanceof Error ? error.stack : undefined
+      },
       { status: 500 }
     )
   }
