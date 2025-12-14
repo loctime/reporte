@@ -81,7 +81,7 @@ export function ColumnConfigurator({
 
   // Extraer información de formato del Excel
   const excelFormat = useMemo(() => {
-    if (!sheet) return { mergedCells: [], columnWidths: {}, cellStyles: {} }
+    if (!sheet) return { mergedCells: [], columnWidths: {}, cellStyles: {}, rowHeights: {} }
 
     // Extraer merged cells
     const mergedCells: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }> = []
@@ -107,6 +107,20 @@ export function ColumnConfigurator({
       })
     }
 
+    // Extraer alturas de fila
+    const rowHeights: Record<number, number> = {}
+    if (sheet['!rows']) {
+      Object.keys(sheet['!rows']).forEach((rowIndex) => {
+        const row = sheet['!rows'][parseInt(rowIndex)]
+        if (row && row.hpt) {
+          // hpt está en puntos, convertir a píxeles (1 punto ≈ 1.33px)
+          rowHeights[parseInt(rowIndex)] = row.hpt * 1.33
+        } else if (row && row.h) {
+          rowHeights[parseInt(rowIndex)] = row.h * 1.33
+        }
+      })
+    }
+
     // Extraer estilos de celdas
     const cellStyles: Record<string, any> = {}
     Object.keys(sheet).forEach((key) => {
@@ -117,7 +131,7 @@ export function ColumnConfigurator({
       }
     })
 
-    return { mergedCells, columnWidths, cellStyles }
+    return { mergedCells, columnWidths, cellStyles, rowHeights }
   }, [sheet])
 
   // Función para verificar si una celda está en un merged range
@@ -141,6 +155,116 @@ export function ColumnConfigurator({
   // Función para obtener el ancho de columna
   const getColumnWidth = (colIndex: number): number => {
     return excelFormat.columnWidths[colIndex] || 120 // Ancho por defecto
+  }
+
+  // Función para obtener la altura de fila
+  const getRowHeight = (rowIndex: number): number => {
+    return excelFormat.rowHeights[rowIndex] || 32 // Altura por defecto
+  }
+
+  // Función para convertir índice de columna a notación Excel (A, B, C, ..., Z, AA, AB, ...)
+  const colIndexToExcel = (colIndex: number): string => {
+    let result = ""
+    let num = colIndex
+    while (num >= 0) {
+      result = String.fromCharCode(65 + (num % 26)) + result
+      num = Math.floor(num / 26) - 1
+    }
+    return result
+  }
+
+  // Función para obtener la dirección de celda en notación Excel (A1, B2, etc.)
+  const getCellAddress = (rowIndex: number, colIndex: number): string => {
+    return `${colIndexToExcel(colIndex)}${rowIndex + 1}`
+  }
+
+  // Función para convertir color Excel a CSS
+  const excelColorToCSS = (color: any): string | undefined => {
+    if (!color) return undefined
+
+    // RGB directo
+    if (color.rgb) {
+      return `#${color.rgb}`
+    }
+
+    // ARGB (formato Excel: AARRGGBB)
+    if (color.argb) {
+      const argb = color.argb
+      // Si tiene formato completo AARRGGBB, tomar solo RGB
+      if (argb.length === 8) {
+        return `#${argb.slice(2)}`
+      }
+      return `#${argb}`
+    }
+
+    // Tema (referencia a tema de Excel)
+    if (color.theme !== undefined) {
+      // Mapeo básico de temas comunes de Excel
+      const themeColors: Record<number, string> = {
+        0: "#000000", // Texto 1
+        1: "#FFFFFF", // Fondo 1
+        2: "#FF0000", // Acento 1
+        3: "#00FF00", // Acento 2
+        4: "#0000FF", // Acento 3
+        5: "#FFFF00", // Acento 4
+        6: "#FF00FF", // Acento 5
+        7: "#00FFFF", // Acento 6
+      }
+      return themeColors[color.theme] || undefined
+    }
+
+    return undefined
+  }
+
+  // Función para obtener el estilo de una celda
+  const getCellStyle = (rowIndex: number, colIndex: number): React.CSSProperties => {
+    const cellAddress = getCellAddress(rowIndex, colIndex)
+    const style = excelFormat.cellStyles[cellAddress] || {}
+
+    // Extraer color de fondo
+    let backgroundColor: string | undefined
+    if (style.fill) {
+      if (style.fill.fgColor) {
+        backgroundColor = excelColorToCSS(style.fill.fgColor)
+      } else if (style.fill.bgColor) {
+        backgroundColor = excelColorToCSS(style.fill.bgColor)
+      }
+    }
+
+    // Extraer color de texto
+    const textColor = style.font?.color ? excelColorToCSS(style.font.color) : undefined
+
+    // Extraer estilos de borde
+    const borderStyle: React.CSSProperties = {}
+    if (style.border) {
+      const borders = ["top", "bottom", "left", "right"] as const
+      borders.forEach((side) => {
+        const border = style.border[side]
+        if (border && border.style) {
+          const borderColor = border.color ? excelColorToCSS(border.color) : "#000000"
+          const borderWidth = border.style === "thin" ? "1px" : 
+                            border.style === "medium" ? "2px" :
+                            border.style === "thick" ? "3px" :
+                            border.style === "double" ? "3px" : "1px"
+          
+          borderStyle[`border${side.charAt(0).toUpperCase() + side.slice(1)}` as keyof React.CSSProperties] = `${borderWidth} solid ${borderColor}`
+        }
+      })
+    }
+
+    return {
+      backgroundColor,
+      color: textColor,
+      fontWeight: style.font?.bold ? "bold" : style.font?.weight || undefined,
+      fontStyle: style.font?.italic ? "italic" : undefined,
+      textAlign: style.alignment?.horizontal || "left",
+      verticalAlign: style.alignment?.vertical || "top",
+      fontSize: style.font?.sz ? `${style.font.sz}pt` : undefined,
+      textDecoration: style.font?.underline ? "underline" : 
+                     style.font?.strike ? "line-through" : undefined,
+      fontFamily: style.font?.name || undefined,
+      ...borderStyle,
+    }
   }
 
   // Función para formatear fechas de Excel (números seriales)
@@ -528,66 +652,100 @@ export function ColumnConfigurator({
           </div>
           
           <div className="overflow-auto max-h-[600px]">
-            <div className="inline-block min-w-full">
-              {/* Encabezado de columnas (A, B, C, ...) */}
-              <div className="flex sticky top-[41px] z-10 bg-muted/80 backdrop-blur-sm">
-                <div className="bg-muted/90 p-2 text-xs font-bold min-w-[60px] border-r border-b sticky left-0 z-20">
-                  {/* Celda vacía para alinear con números de fila */}
-                </div>
-                {Array.from({ length: maxColumns }).map((_, colIndex) => {
-                  const isColSelected = isColumnSelected(colIndex)
-                  const label = getColumnLabel(colIndex)
-                  const colWidth = getColumnWidth(colIndex)
-                  
-                  return (
-                    <div
-                      key={colIndex}
-                      className={cn(
-                        "p-2 text-xs font-semibold border-r border-b text-center",
-                        isColSelected
-                          ? "bg-success/30 border-success"
-                          : "bg-muted/50"
-                      )}
-                      style={{ minWidth: `${colWidth}px`, width: `${colWidth}px` }}
-                    >
-                      {String.fromCharCode(65 + (colIndex % 26))}
-                      {colIndex >= 26 ? Math.floor(colIndex / 26) : ""}
-                      {label && (
-                        <div className="text-[10px] mt-1 text-success font-bold">
-                          {label}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* Filas del Excel */}
+            <table className="border-collapse" style={{ tableLayout: 'fixed', width: '100%' }}>
+              <colgroup>
+                <col style={{ width: '60px' }} /> {/* Columna de números de fila */}
+                {Array.from({ length: maxColumns }).map((_, colIndex) => (
+                  <col key={colIndex} style={{ width: `${getColumnWidth(colIndex)}px` }} />
+                ))}
+              </colgroup>
+              
+              <thead className="sticky top-[41px] z-10 bg-muted/80 backdrop-blur-sm">
+                <tr>
+                  <th className="bg-muted/90 p-2 text-xs font-bold border border-gray-300 sticky left-0 z-20">
+                    {/* Celda vacía para números de fila */}
+                  </th>
+                  {Array.from({ length: maxColumns }).map((_, colIndex) => {
+                    const isColSelected = isColumnSelected(colIndex)
+                    const label = getColumnLabel(colIndex)
+                    
+                    return (
+                      <th
+                        key={colIndex}
+                        className={cn(
+                          "p-2 text-xs font-semibold border border-gray-300 text-center",
+                          isColSelected
+                            ? "bg-success/30 border-success"
+                            : "bg-muted/50"
+                        )}
+                      >
+                        {colIndexToExcel(colIndex)}
+                        {label && (
+                          <div className="text-[10px] mt-1 text-success font-bold">
+                            {label}
+                          </div>
+                        )}
+                      </th>
+                    )
+                  })}
+                </tr>
+              </thead>
+              
+              <tbody>
               {rawData.map((row, rowIndex) => {
                 const isHeaderRow = rowIndex === headerRowIndex
+                const rowHeight = getRowHeight(rowIndex)
+                
+                // Crear un mapa de celdas procesadas para esta fila
+                const processedCells = new Map<number, boolean>()
                 
                 return (
-                  <div key={rowIndex} className="flex">
+                  <tr 
+                    key={rowIndex} 
+                    style={{ height: `${rowHeight}px` }}
+                  >
                     {/* Número de fila (sticky) */}
-                    <div className={cn(
-                      "bg-muted/50 p-2 text-xs font-medium min-w-[60px] border-r border-b sticky left-0 z-10",
-                      isHeaderRow && "bg-primary/20 font-bold"
-                    )}>
+                    <td 
+                      className={cn(
+                        "bg-muted/50 p-2 text-xs font-medium border border-gray-300 sticky left-0 z-10 text-center",
+                        isHeaderRow && "bg-primary/20 font-bold"
+                      )}
+                      style={{ 
+                        height: `${rowHeight}px`,
+                        verticalAlign: 'middle'
+                      }}
+                    >
                       {rowIndex + 1}
-                    </div>
+                    </td>
                     
                     {/* Celdas de la fila */}
                     {Array.from({ length: maxColumns }).map((_, colIndex) => {
                       // Verificar si esta celda está en un merged range
                       const mergedInfo = getMergedCellInfo(rowIndex, colIndex)
                       
-                      // Si está en un merge pero no es la celda inicial, renderizar celda vacía
-                      const isMergedHidden = mergedInfo.isMerged && !mergedInfo.isStartCell
+                      // Si ya procesamos esta celda (es parte de un merge anterior), saltarla
+                      if (processedCells.get(colIndex)) {
+                        return null
+                      }
                       
+                      // Si está en un merge pero no es la celda inicial, no renderizar
+                      const isMergedHidden = mergedInfo.isMerged && !mergedInfo.isStartCell
+                      if (isMergedHidden) {
+                        return null
+                      }
+                      
+                      // Obtener el valor de la celda
                       const cellValue = row[colIndex]
                       const displayValue = currentStep === "fechaCell" 
                         ? formatExcelDate(cellValue)
                         : String(cellValue || "").trim()
+                      
+                      // Si esta celda es parte de un merge, marcar las siguientes celdas como procesadas
+                      if (mergedInfo.isMerged && mergedInfo.isStartCell) {
+                        for (let c = colIndex + 1; c <= colIndex + mergedInfo.colSpan - 1; c++) {
+                          processedCells.set(c, true)
+                        }
+                      }
                       
                       // Determinar si esta celda/columna está seleccionada
                       let isSelected = false
@@ -687,50 +845,46 @@ export function ColumnConfigurator({
                             ? true // Cualquier celda es clickeable en paso de cumplimiento
                             : (currentStep !== "complete" && isHeaderRow) // Solo encabezados en pasos de columnas
                       
-                      const colWidth = getColumnWidth(colIndex)
-                      // Calcular ancho total si está combinada
-                      let totalWidth = colWidth
-                      if (mergedInfo.isMerged && mergedInfo.isStartCell) {
-                        // Sumar anchos de todas las columnas combinadas
-                        totalWidth = 0
-                        for (let c = colIndex; c <= colIndex + mergedInfo.colSpan - 1; c++) {
-                          totalWidth += getColumnWidth(c)
-                        }
-                      }
+                      // Obtener estilos de Excel para esta celda
+                      const excelCellStyle = getCellStyle(rowIndex, colIndex)
                       
-                      // Si está dentro de un merge pero no es la celda inicial, renderizar celda vacía
-                      if (isMergedHidden) {
-                        return (
-                          <div
-                            key={colIndex}
-                            className="border-r border-b"
-                            style={{ 
-                              minWidth: `${colWidth}px`, 
-                              width: `${colWidth}px`,
-                              height: '100%'
-                            }}
-                          />
-                        )
-                      }
-                      
+                      // Calcular colspan y rowspan si está combinada
+                      const colspan = mergedInfo.isMerged && mergedInfo.isStartCell ? mergedInfo.colSpan : 1
+                      const rowspan = mergedInfo.isMerged && mergedInfo.isStartCell ? mergedInfo.rowSpan : 1
+
                       return (
-                        <div
+                        <td
                           key={colIndex}
+                          colSpan={colspan}
+                          rowSpan={rowspan}
                           className={cn(
-                            "border-r border-b p-2 text-sm transition-all",
-                            isSelected
-                              ? "bg-success/30 border-success border-2"
-                              : isHighlighted
-                                ? "bg-success/10 border-success/50"
-                                : isHeaderRow
-                                  ? "bg-primary/5 font-semibold"
-                                  : "bg-background",
-                            isClickable && "cursor-pointer hover:bg-primary/10 hover:border-primary",
+                            "border border-gray-300 p-2 text-sm transition-all",
+                            // Solo aplicar clases de fondo si no hay color de Excel
+                            !excelCellStyle.backgroundColor && (
+                              isSelected
+                                ? "bg-success/30 border-success border-2"
+                                : isHighlighted
+                                  ? "bg-success/10 border-success/50"
+                                  : isHeaderRow
+                                    ? "bg-primary/5 font-semibold"
+                                    : "bg-background"
+                            ),
+                            isClickable && "cursor-pointer hover:opacity-80",
                             !isClickable && "cursor-default"
                           )}
                           style={{ 
-                            minWidth: `${totalWidth}px`, 
-                            width: `${totalWidth}px`,
+                            // Aplicar estilos de Excel (colores, fuentes, bordes, etc.)
+                            ...excelCellStyle,
+                            verticalAlign: excelCellStyle.verticalAlign || 'top',
+                            // Mantener colores de selección/resaltado si están activos (con overlay)
+                            ...(isSelected && excelCellStyle.backgroundColor && { 
+                              backgroundColor: excelCellStyle.backgroundColor,
+                              boxShadow: 'inset 0 0 0 2px rgb(34 197 94 / 0.5)'
+                            }),
+                            ...(isHighlighted && !isSelected && excelCellStyle.backgroundColor && { 
+                              backgroundColor: excelCellStyle.backgroundColor,
+                              boxShadow: 'inset 0 0 0 1px rgb(34 197 94 / 0.3)'
+                            }),
                           }}
                           onClick={() => {
                             if (isClickable) {
@@ -745,7 +899,20 @@ export function ColumnConfigurator({
                           }}
                           title={displayValue || `Fila ${rowIndex + 1}, Col ${colIndex + 1}`}
                         >
-                          <div className="truncate" title={displayValue}>
+                          <div 
+                            className="truncate" 
+                            title={displayValue}
+                            style={{
+                              // Aplicar estilos de texto de Excel
+                              color: excelCellStyle.color,
+                              fontWeight: excelCellStyle.fontWeight,
+                              fontStyle: excelCellStyle.fontStyle,
+                              fontSize: excelCellStyle.fontSize,
+                              fontFamily: excelCellStyle.fontFamily,
+                              textAlign: excelCellStyle.textAlign as any,
+                              textDecoration: excelCellStyle.textDecoration,
+                            }}
+                          >
                             {displayValue || ""}
                           </div>
                           {label && (
@@ -756,13 +923,14 @@ export function ColumnConfigurator({
                               {label}
                             </Badge>
                           )}
-                        </div>
+                        </td>
                       )
                     })}
-                  </div>
+                  </tr>
                 )
               })}
-            </div>
+              </tbody>
+            </table>
           </div>
         </div>
 

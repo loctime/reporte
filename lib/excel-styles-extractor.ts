@@ -299,3 +299,4 @@ function borderStyleToWidth(style: string): string {
   }
   return styleMap[style] || "1px"
 }
+
