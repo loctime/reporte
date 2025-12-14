@@ -1,18 +1,20 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { CheckCircle2, X, AlertCircle } from "lucide-react"
 import { saveColumnConfig, loadColumnConfig, type ColumnConfig } from "@/lib/column-config"
 import { cn, formatDate } from "@/lib/utils"
+import * as XLSX from "xlsx"
 
 interface ColumnConfiguratorProps {
   rawData: any[][]
   headerRowIndex: number
   onConfigComplete: (config: ColumnConfig) => void
   onSkip: () => void
+  sheet?: XLSX.WorkSheet // Objeto sheet completo para obtener formato
 }
 
 type ConfigStep = "pregunta" | "cumple" | "cumpleParcial" | "noCumple" | "noAplica" | "observacion" | "cumplimiento" | "totalItems" | "cumpleCell" | "cumpleParcialCell" | "noCumpleCell" | "noAplicaCell" | "operacionCell" | "fechaCell" | "cumplePctCell" | "cumpleParcialPctCell" | "noCumplePctCell" | "noAplicaPctCell" | "complete"
@@ -44,6 +46,7 @@ export function ColumnConfigurator({
   headerRowIndex,
   onConfigComplete,
   onSkip,
+  sheet,
 }: ColumnConfiguratorProps) {
   const [currentStep, setCurrentStep] = useState<ConfigStep>("pregunta")
   const [config, setConfig] = useState<Partial<ColumnConfig>>(() => {
@@ -75,6 +78,70 @@ export function ColumnConfigurator({
   const maxColumns = Math.max(...rawData.map((row) => row?.length || 0), 0)
 
   const [selectedRow, setSelectedRow] = useState<number | null>(null)
+
+  // Extraer información de formato del Excel
+  const excelFormat = useMemo(() => {
+    if (!sheet) return { mergedCells: [], columnWidths: {}, cellStyles: {} }
+
+    // Extraer merged cells
+    const mergedCells: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }> = []
+    if (sheet['!merges']) {
+      sheet['!merges'].forEach((merge: XLSX.Range) => {
+        mergedCells.push({
+          s: { r: merge.s.r, c: merge.s.c },
+          e: { r: merge.e.r, c: merge.e.c },
+        })
+      })
+    }
+
+    // Extraer anchos de columna
+    const columnWidths: Record<number, number> = {}
+    if (sheet['!cols']) {
+      sheet['!cols'].forEach((col: any, index: number) => {
+        if (col && col.w) {
+          // w está en caracteres, convertir a píxeles aproximados (1 char ≈ 7px)
+          columnWidths[index] = col.w * 7
+        } else if (col && col.width) {
+          columnWidths[index] = col.width * 7
+        }
+      })
+    }
+
+    // Extraer estilos de celdas
+    const cellStyles: Record<string, any> = {}
+    Object.keys(sheet).forEach((key) => {
+      if (key.startsWith('!')) return
+      const cell = sheet[key]
+      if (cell && cell.s) {
+        cellStyles[key] = cell.s
+      }
+    })
+
+    return { mergedCells, columnWidths, cellStyles }
+  }, [sheet])
+
+  // Función para verificar si una celda está en un merged range
+  const getMergedCellInfo = (rowIndex: number, colIndex: number) => {
+    for (const merge of excelFormat.mergedCells) {
+      if (
+        rowIndex >= merge.s.r &&
+        rowIndex <= merge.e.r &&
+        colIndex >= merge.s.c &&
+        colIndex <= merge.e.c
+      ) {
+        const isStartCell = rowIndex === merge.s.r && colIndex === merge.s.c
+        const rowSpan = merge.e.r - merge.s.r + 1
+        const colSpan = merge.e.c - merge.s.c + 1
+        return { isMerged: true, isStartCell, rowSpan, colSpan }
+      }
+    }
+    return { isMerged: false, isStartCell: false, rowSpan: 1, colSpan: 1 }
+  }
+
+  // Función para obtener el ancho de columna
+  const getColumnWidth = (colIndex: number): number => {
+    return excelFormat.columnWidths[colIndex] || 120 // Ancho por defecto
+  }
 
   // Función para formatear fechas de Excel (números seriales)
   const formatExcelDate = (value: any): string => {
@@ -325,13 +392,13 @@ export function ColumnConfigurator({
               <p className="text-sm text-muted-foreground">No Aplica</p>
               <p className="font-semibold">Columna {config.noAplica! + 1}</p>
             </div>
-            {config.observacion !== null && (
+            {config.observacion !== null && config.observacion !== undefined && (
               <div className="p-3 border rounded-lg">
                 <p className="text-sm text-muted-foreground">Observación</p>
                 <p className="font-semibold">Columna {config.observacion + 1}</p>
               </div>
             )}
-            {config.cumplimientoCol !== null && (
+            {config.cumplimientoCol !== null && config.cumplimientoCol !== undefined && (
               <div className="p-3 border rounded-lg">
                 <p className="text-sm text-muted-foreground">Cumplimiento</p>
                 <p className="font-semibold">Columna {config.cumplimientoCol + 1}</p>
@@ -422,7 +489,7 @@ export function ColumnConfigurator({
       <CardHeader>
         <CardTitle>Configurar Columnas del Excel</CardTitle>
         <CardDescription>
-          Haz clic en las columnas de la fila de encabezados para configurar el sistema. Esta configuración se guardará
+          Visualiza tu Excel completo y selecciona las columnas y celdas necesarias. Esta configuración se guardará
           para todos los archivos con el mismo formato.
         </CardDescription>
       </CardHeader>
@@ -443,93 +510,92 @@ export function ColumnConfigurator({
           </p>
         </div>
 
-        <div className="overflow-x-auto">
-          <div className="inline-block min-w-full">
-            <div className="border rounded-lg overflow-hidden">
-              <div className="bg-muted p-2 text-sm font-medium">
+        {/* Excel completo con todas las filas */}
+        <div className="border rounded-lg overflow-hidden bg-background">
+          <div className="bg-muted/50 p-2 text-xs font-medium border-b sticky top-0 z-10">
+            <div className="flex items-center justify-between">
+              <span>
+                Excel Completo - {rawData.length} filas × {maxColumns} columnas
+              </span>
+              <span className="text-muted-foreground">
                 {currentStep === "cumplimiento" 
-                  ? `Filas ${headerRowIndex + 1} y ${headerRowIndex + 2} - Buscar columna de Cumplimiento`
+                  ? "Selecciona una columna"
                   : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell"
-                    ? `Selecciona la CELDA específica (fila y columna) - Busca en las primeras 15 filas`
-                    : `Fila ${headerRowIndex + 1} - Encabezados`}
-              </div>
-              {currentStep === "cumplimiento" ? (
-                // Mostrar múltiples filas para cumplimiento
-                <div className="space-y-2 p-2">
-                  {[headerRowIndex, headerRowIndex + 1, headerRowIndex + 2].filter(i => i < rawData.length).map((rowIndex) => (
-                    <div key={rowIndex} className="flex">
-                      <div className="bg-muted/50 p-2 text-xs font-medium min-w-[80px] border-r">
-                        Fila {rowIndex + 1}
-                      </div>
-                      {Array.from({ length: Math.min(maxColumns, 15) }).map((_, colIndex) => {
-                        const cellValue = String(rawData[rowIndex]?.[colIndex] || "").trim()
-                        const isSelected = config.cumplimientoCol === colIndex
-                        const numValue = typeof rawData[rowIndex]?.[colIndex] === "number" 
-                          ? rawData[rowIndex]?.[colIndex] 
-                          : Number.parseFloat(String(rawData[rowIndex]?.[colIndex] || ""))
-                        const isPercentageValue = !isNaN(numValue) && ((numValue >= 0.5 && numValue <= 1.0) || (numValue > 0 && numValue <= 100))
-
-                        return (
-                          <div
-                            key={colIndex}
-                            className={cn(
-                              "border-r border-b p-2 min-w-[120px] cursor-pointer transition-all text-sm",
-                              isSelected
-                                ? "bg-success/20 border-success"
-                                : isPercentageValue && rowIndex === headerRowIndex + 1
-                                  ? "bg-warning/10 hover:bg-warning/20"
-                                  : "hover:bg-primary/10 hover:border-primary",
-                            )}
-                            onClick={() => {
-                              if (currentStep === "cumplimiento") {
-                                handleColumnClick(colIndex)
-                              }
-                            }}
-                          >
-                            <div className="text-xs text-muted-foreground mb-1">Col {colIndex + 1}</div>
-                            <div className="truncate font-medium" title={cellValue}>
-                              {cellValue || "(vacía)"}
-                            </div>
-                            {isSelected && (
-                              <Badge variant="default" className="mt-1 text-xs">
-                                Cumplimiento
-                              </Badge>
-                            )}
-                            {isPercentageValue && rowIndex === headerRowIndex + 1 && !isSelected && (
-                              <Badge variant="secondary" className="mt-1 text-xs">
-                                Posible valor
-                              </Badge>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ))}
+                    ? "Selecciona una celda específica"
+                    : "Selecciona una columna completa"}
+              </span>
+            </div>
+          </div>
+          
+          <div className="overflow-auto max-h-[600px]">
+            <div className="inline-block min-w-full">
+              {/* Encabezado de columnas (A, B, C, ...) */}
+              <div className="flex sticky top-[41px] z-10 bg-muted/80 backdrop-blur-sm">
+                <div className="bg-muted/90 p-2 text-xs font-bold min-w-[60px] border-r border-b sticky left-0 z-20">
+                  {/* Celda vacía para alinear con números de fila */}
                 </div>
-              ) : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell" ? (
-                // Mostrar múltiples filas para seleccionar celdas de estadísticas
-                <div className="space-y-2 p-2 max-h-[400px] overflow-y-auto">
-                  {Array.from({ length: Math.min(15, rawData.length) }).map((_, rowIndex) => (
-                    <div key={rowIndex} className="flex">
-                      <div className="bg-muted/50 p-2 text-xs font-medium min-w-[80px] border-r">
-                        Fila {rowIndex + 1}
-                      </div>
-                      {Array.from({ length: Math.min(maxColumns, 15) }).map((_, colIndex) => {
-                        const cellValue = rawData[rowIndex]?.[colIndex]
-                        // Formatear la fecha si estamos en el paso de fechaCell
-                        const displayValue = currentStep === "fechaCell" 
-                          ? formatExcelDate(cellValue)
-                          : String(cellValue || "").trim()
-                        const cellValueStr = displayValue === "(vacía)" ? "" : displayValue
-                        const numValue = typeof cellValue === "number" ? cellValue : Number.parseInt(String(cellValue || ""), 10)
-                        const isNumeric = !isNaN(numValue) && numValue > 0
-                        
-                        // Detectar si es una fecha (número serial de Excel)
-                        const isDateValue = typeof cellValue === "number" && cellValue > 0 && cellValue < 100000 && currentStep === "fechaCell"
-                        
-                        // Verificar si esta celda está seleccionada
-                        let isSelected = false
-                        let label = ""
+                {Array.from({ length: maxColumns }).map((_, colIndex) => {
+                  const isColSelected = isColumnSelected(colIndex)
+                  const label = getColumnLabel(colIndex)
+                  const colWidth = getColumnWidth(colIndex)
+                  
+                  return (
+                    <div
+                      key={colIndex}
+                      className={cn(
+                        "p-2 text-xs font-semibold border-r border-b text-center",
+                        isColSelected
+                          ? "bg-success/30 border-success"
+                          : "bg-muted/50"
+                      )}
+                      style={{ minWidth: `${colWidth}px`, width: `${colWidth}px` }}
+                    >
+                      {String.fromCharCode(65 + (colIndex % 26))}
+                      {colIndex >= 26 ? Math.floor(colIndex / 26) : ""}
+                      {label && (
+                        <div className="text-[10px] mt-1 text-success font-bold">
+                          {label}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Filas del Excel */}
+              {rawData.map((row, rowIndex) => {
+                const isHeaderRow = rowIndex === headerRowIndex
+                
+                return (
+                  <div key={rowIndex} className="flex">
+                    {/* Número de fila (sticky) */}
+                    <div className={cn(
+                      "bg-muted/50 p-2 text-xs font-medium min-w-[60px] border-r border-b sticky left-0 z-10",
+                      isHeaderRow && "bg-primary/20 font-bold"
+                    )}>
+                      {rowIndex + 1}
+                    </div>
+                    
+                    {/* Celdas de la fila */}
+                    {Array.from({ length: maxColumns }).map((_, colIndex) => {
+                      // Verificar si esta celda está en un merged range
+                      const mergedInfo = getMergedCellInfo(rowIndex, colIndex)
+                      
+                      // Si está en un merge pero no es la celda inicial, renderizar celda vacía
+                      const isMergedHidden = mergedInfo.isMerged && !mergedInfo.isStartCell
+                      
+                      const cellValue = row[colIndex]
+                      const displayValue = currentStep === "fechaCell" 
+                        ? formatExcelDate(cellValue)
+                        : String(cellValue || "").trim()
+                      
+                      // Determinar si esta celda/columna está seleccionada
+                      let isSelected = false
+                      let label = ""
+                      let isHighlighted = false
+                      
+                      if (currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell") {
+                        // Para pasos de celdas específicas
                         if (currentStep === "totalItems" && config.totalItemsCell?.row === rowIndex && config.totalItemsCell?.col === colIndex) {
                           isSelected = true
                           label = "Total Items"
@@ -564,86 +630,138 @@ export function ColumnConfigurator({
                           isSelected = true
                           label = "% No Aplica"
                         }
-
+                        
+                        // Resaltar celdas previamente seleccionadas
+                        if (config.totalItemsCell?.row === rowIndex && config.totalItemsCell?.col === colIndex && !isSelected) {
+                          isHighlighted = true
+                          label = "Total Items"
+                        } else if (config.cumpleCell?.row === rowIndex && config.cumpleCell?.col === colIndex && !isSelected) {
+                          isHighlighted = true
+                          label = "Cumple"
+                        } else if (config.cumpleParcialCell?.row === rowIndex && config.cumpleParcialCell?.col === colIndex && !isSelected) {
+                          isHighlighted = true
+                          label = "Cumple Parcial"
+                        } else if (config.noCumpleCell?.row === rowIndex && config.noCumpleCell?.col === colIndex && !isSelected) {
+                          isHighlighted = true
+                          label = "No Cumple"
+                        } else if (config.noAplicaCell?.row === rowIndex && config.noAplicaCell?.col === colIndex && !isSelected) {
+                          isHighlighted = true
+                          label = "No Aplica"
+                        } else if (config.operacionCell?.row === rowIndex && config.operacionCell?.col === colIndex && !isSelected) {
+                          isHighlighted = true
+                          label = "Operación"
+                        } else if (config.fechaCell?.row === rowIndex && config.fechaCell?.col === colIndex && !isSelected) {
+                          isHighlighted = true
+                          label = "Fecha"
+                        } else if (config.cumplePctCell?.row === rowIndex && config.cumplePctCell?.col === colIndex && !isSelected) {
+                          isHighlighted = true
+                          label = "% Cumple"
+                        } else if (config.cumpleParcialPctCell?.row === rowIndex && config.cumpleParcialPctCell?.col === colIndex && !isSelected) {
+                          isHighlighted = true
+                          label = "% Cumple Parcial"
+                        } else if (config.noCumplePctCell?.row === rowIndex && config.noCumplePctCell?.col === colIndex && !isSelected) {
+                          isHighlighted = true
+                          label = "% No Cumple"
+                        } else if (config.noAplicaPctCell?.row === rowIndex && config.noAplicaPctCell?.col === colIndex && !isSelected) {
+                          isHighlighted = true
+                          label = "% No Aplica"
+                        }
+                      } else {
+                        // Para pasos de columnas
+                        if (isColumnSelected(colIndex)) {
+                          isSelected = isHeaderRow && isColumnSelected(colIndex)
+                          label = getColumnLabel(colIndex) || ""
+                        }
+                        
+                        // Resaltar toda la columna si está seleccionada
+                        if (isColumnSelected(colIndex)) {
+                          isHighlighted = true
+                        }
+                      }
+                      
+                      // Determinar si es clickeable según el paso actual
+                      const isClickable = 
+                        (currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell")
+                          ? true // Cualquier celda es clickeable en pasos de celdas
+                          : (currentStep === "cumplimiento")
+                            ? true // Cualquier celda es clickeable en paso de cumplimiento
+                            : (currentStep !== "complete" && isHeaderRow) // Solo encabezados en pasos de columnas
+                      
+                      const colWidth = getColumnWidth(colIndex)
+                      // Calcular ancho total si está combinada
+                      let totalWidth = colWidth
+                      if (mergedInfo.isMerged && mergedInfo.isStartCell) {
+                        // Sumar anchos de todas las columnas combinadas
+                        totalWidth = 0
+                        for (let c = colIndex; c <= colIndex + mergedInfo.colSpan - 1; c++) {
+                          totalWidth += getColumnWidth(c)
+                        }
+                      }
+                      
+                      // Si está dentro de un merge pero no es la celda inicial, renderizar celda vacía
+                      if (isMergedHidden) {
                         return (
                           <div
                             key={colIndex}
-                            className={cn(
-                              "border-r border-b p-2 min-w-[120px] cursor-pointer transition-all text-sm",
-                              isSelected
-                                ? "bg-success/20 border-success"
-                                : isNumeric
-                                  ? "bg-warning/10 hover:bg-warning/20"
-                                  : "hover:bg-primary/10 hover:border-primary",
-                            )}
-                            onClick={() => {
-                              handleCellClick(rowIndex, colIndex)
+                            className="border-r border-b"
+                            style={{ 
+                              minWidth: `${colWidth}px`, 
+                              width: `${colWidth}px`,
+                              height: '100%'
                             }}
-                          >
-                            <div className="text-xs text-muted-foreground mb-1">Col {colIndex + 1}</div>
-                            <div className="truncate font-medium" title={displayValue}>
-                              {displayValue}
-                            </div>
-                            {isSelected && (
-                              <Badge variant="default" className="mt-1 text-xs">
-                                {label}
-                              </Badge>
-                            )}
-                            {isDateValue && !isSelected && (
-                              <Badge variant="secondary" className="mt-1 text-xs">
-                                Fecha
-                              </Badge>
-                            )}
-                            {isNumeric && !isDateValue && !isSelected && (
-                              <Badge variant="secondary" className="mt-1 text-xs">
-                                Número
-                              </Badge>
-                            )}
-                          </div>
+                          />
                         )
-                      })}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                // Mostrar solo encabezados para otros pasos
-                <div className="flex">
-                  {Array.from({ length: Math.min(maxColumns, 15) }).map((_, colIndex) => {
-                    const cellValue = String(headerRow[colIndex] || "").trim()
-                    const isSelected = isColumnSelected(colIndex)
-                    const label = getColumnLabel(colIndex)
-
-                    return (
-                      <div
-                        key={colIndex}
-                        className={cn(
-                          "border-r border-b p-3 min-w-[150px] cursor-pointer transition-all",
-                          isSelected
-                            ? "bg-success/20 border-success"
-                            : currentStep !== "complete" && currentStep !== "observacion" && currentStep !== "cumplimiento"
-                              ? "hover:bg-primary/10 hover:border-primary"
-                              : "bg-background",
-                        )}
-                        onClick={() => {
-                          if (currentStep !== "complete" && currentStep !== "cumplimiento") {
-                            handleColumnClick(colIndex)
-                          }
-                        }}
-                      >
-                        <div className="text-xs text-muted-foreground mb-1">Col {colIndex + 1}</div>
-                        <div className="text-sm font-medium truncate" title={cellValue}>
-                          {cellValue || "(vacía)"}
+                      }
+                      
+                      return (
+                        <div
+                          key={colIndex}
+                          className={cn(
+                            "border-r border-b p-2 text-sm transition-all",
+                            isSelected
+                              ? "bg-success/30 border-success border-2"
+                              : isHighlighted
+                                ? "bg-success/10 border-success/50"
+                                : isHeaderRow
+                                  ? "bg-primary/5 font-semibold"
+                                  : "bg-background",
+                            isClickable && "cursor-pointer hover:bg-primary/10 hover:border-primary",
+                            !isClickable && "cursor-default"
+                          )}
+                          style={{ 
+                            minWidth: `${totalWidth}px`, 
+                            width: `${totalWidth}px`,
+                          }}
+                          onClick={() => {
+                            if (isClickable) {
+                              if (currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell") {
+                                handleCellClick(rowIndex, colIndex)
+                              } else if (currentStep === "cumplimiento") {
+                                handleColumnClick(colIndex)
+                              } else if (isHeaderRow) {
+                                handleColumnClick(colIndex)
+                              }
+                            }
+                          }}
+                          title={displayValue || `Fila ${rowIndex + 1}, Col ${colIndex + 1}`}
+                        >
+                          <div className="truncate" title={displayValue}>
+                            {displayValue || ""}
+                          </div>
+                          {label && (
+                            <Badge 
+                              variant={isSelected ? "default" : "secondary"} 
+                              className="mt-1 text-[10px] px-1 py-0"
+                            >
+                              {label}
+                            </Badge>
+                          )}
                         </div>
-                        {label && (
-                          <Badge variant="default" className="mt-2 text-xs">
-                            {label}
-                          </Badge>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+                      )
+                    })}
+                  </div>
+                )
+              })}
             </div>
           </div>
         </div>

@@ -41,6 +41,7 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
   const [rawData, setRawData] = useState<any[][]>([])
   const [headerRowIndex, setHeaderRowIndex] = useState<number>(-1)
   const [savedConfig, setSavedConfig] = useState<ColumnConfig | null>(null)
+  const [sheet, setSheet] = useState<XLSX.WorkSheet | undefined>(undefined)
   const [errorDialog, setErrorDialog] = useState<{
     open: boolean
     errors: Array<{ fileName: string; error: string }>
@@ -79,6 +80,7 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
             setConfigFile(firstFile)
             setRawData(raw)
             setHeaderRowIndex(headerIndex)
+            setSheet(firstSheet) // Guardar el objeto sheet completo para formato
             setShowConfigurator(true)
             return
           } else {
@@ -255,6 +257,7 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
           headerRowIndex={headerRowIndex}
           onConfigComplete={handleConfigComplete}
           onSkip={handleConfigSkip}
+          sheet={sheet}
         />
       )}
 

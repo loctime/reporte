@@ -21,6 +21,7 @@ interface ExcelDebugData {
   sheetNames: string[]
   parsedData: AuditFile | null
   error: string | null
+  sheet?: XLSX.WorkSheet // Objeto sheet completo para formato
   metadata: {
     totalRows: number
     totalColumns: number
@@ -108,6 +109,7 @@ export default function VerificarPage() {
         sheetNames: workbook.SheetNames,
         parsedData,
         error: parseError,
+        sheet: firstSheet, // Guardar el objeto sheet completo para formato
         metadata,
       })
     } catch (error) {
@@ -247,6 +249,7 @@ export default function VerificarPage() {
               headerRowIndex={debugData.metadata.headerRowIndex}
               onConfigComplete={handleConfigComplete}
               onSkip={handleConfigSkip}
+              sheet={debugData.sheet}
             />
           )}
 
