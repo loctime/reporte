@@ -45,9 +45,10 @@ export function ExcelViewer({
           setIsLoadingStyles(false)
         })
         .catch((error) => {
-          // ExcelJS no está disponible en el navegador, usar XLSX
-          console.log("Usando XLSX para extraer estilos (ExcelJS no disponible en navegador)")
+          // Error al cargar estilos con ExcelJS, usar XLSX como fallback
+          console.warn("⚠️ No se pudieron cargar estilos con ExcelJS, usando fallback XLSX:", error)
           setIsLoadingStyles(false)
+          // No establecer null aquí, el fallback XLSX ya devuelve datos
           setExceljsFormat(null)
         })
     } else {

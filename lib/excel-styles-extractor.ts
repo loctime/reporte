@@ -27,11 +27,45 @@ export interface ExcelFormatData {
 }
 
 /**
- * Extrae estilos de un archivo Excel usando XLSX
- * XLSX funciona en el navegador y puede extraer algunos estilos básicos
- * Nota: XLSX tiene limitaciones para leer estilos completos, pero extrae lo que puede
+ * Extrae estilos completos de un archivo Excel usando ExcelJS en el servidor
+ * Llama a un API route que usa ExcelJS para extraer todos los estilos, colores y bordes
+ * Si falla, usa XLSX como fallback
  */
 export async function extractExcelStylesWithExcelJS(file: File): Promise<ExcelFormatData> {
+  // Intentar primero con el API route que usa ExcelJS en el servidor
+  try {
+    console.log("🔄 Intentando extraer estilos con ExcelJS vía API route...")
+    const formData = new FormData()
+    formData.append("file", file)
+
+    const response = await fetch("/api/extract-excel-styles", {
+      method: "POST",
+      body: formData,
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      const styleCount = Object.keys(data.cellStyles || {}).length
+      console.log("✅ Estilos extraídos exitosamente con ExcelJS:", styleCount, "celdas con estilos")
+      return data as ExcelFormatData
+    } else {
+      const errorText = await response.text()
+      console.warn("⚠️ API route respondió con error:", response.status, errorText.substring(0, 200))
+    }
+  } catch (error) {
+    console.warn("⚠️ Error al llamar al API route:", error instanceof Error ? error.message : String(error))
+  }
+
+  // Fallback: usar XLSX básico
+  console.log("📦 Usando XLSX como fallback para extraer estilos básicos")
+  return extractExcelStylesWithXLSX(file)
+}
+
+/**
+ * Extrae estilos básicos usando XLSX (fallback)
+ * XLSX tiene limitaciones para leer estilos completos
+ */
+async function extractExcelStylesWithXLSX(file: File): Promise<ExcelFormatData> {
   const buffer = await file.arrayBuffer()
   const workbook = XLSX.read(buffer, { type: "array", cellStyles: true })
   const worksheet = workbook.Sheets[workbook.SheetNames[0]]
