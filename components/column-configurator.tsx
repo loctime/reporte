@@ -20,7 +20,7 @@ interface ColumnConfiguratorProps {
   file?: File // Archivo Excel opcional para usar ExcelJS (mejor extracción de estilos)
 }
 
-type ConfigStep = "pregunta" | "cumple" | "cumpleParcial" | "noCumple" | "noAplica" | "observacion" | "cumplimiento" | "totalItems" | "cumpleCell" | "cumpleParcialCell" | "noCumpleCell" | "noAplicaCell" | "operacionCell" | "fechaCell" | "cumplePctCell" | "cumpleParcialPctCell" | "noCumplePctCell" | "noAplicaPctCell" | "complete"
+type ConfigStep = "pregunta" | "cumple" | "cumpleParcial" | "noCumple" | "noAplica" | "observacion" | "fechaCell" | "totalItems" | "cumplimiento" | "cumplePctCell" | "cumpleParcialPctCell" | "noCumplePctCell" | "noAplicaPctCell" | "complete"
 
 const stepLabels: Record<ConfigStep, string> = {
   pregunta: "Columna de Preguntas",
@@ -29,18 +29,13 @@ const stepLabels: Record<ConfigStep, string> = {
   noCumple: "Columna NO CUMPLE",
   noAplica: "Columna NO APLICA",
   observacion: "Columna de Observaciones (opcional)",
-  cumplimiento: "Celda de Cumplimiento (opcional)",
+  fechaCell: "Celda de Fecha",
   totalItems: "Celda de Total Items",
-  cumpleCell: "Celda de Cantidad CUMPLE",
-  cumpleParcialCell: "Celda de Cantidad CUMPLE PARCIAL",
-  noCumpleCell: "Celda de Cantidad NO CUMPLE",
-  noAplicaCell: "Celda de Cantidad NO APLICA",
-  operacionCell: "Celda de Operación (para vista previa)",
-  fechaCell: "Celda de Fecha (para vista previa)",
-  cumplePctCell: "Celda de Porcentaje CUMPLE (C13 por defecto)",
-  cumpleParcialPctCell: "Celda de Porcentaje CUMPLE PARCIAL (D13 por defecto)",
-  noCumplePctCell: "Celda de Porcentaje NO CUMPLE (E13 por defecto)",
-  noAplicaPctCell: "Celda de Porcentaje NO APLICA (F13 por defecto)",
+  cumplimiento: "Celda de Porcentaje de Cumplimiento",
+  cumplePctCell: "Celda de Porcentaje CUMPLE",
+  cumpleParcialPctCell: "Celda de Porcentaje CUMPLE PARCIAL",
+  noCumplePctCell: "Celda de Porcentaje NO CUMPLE",
+  noAplicaPctCell: "Celda de Porcentaje NO APLICA",
   complete: "Configuración Completa",
 }
 
@@ -91,8 +86,8 @@ export function ColumnConfigurator({
       cumpleParcialCell: null,
       noCumpleCell: null,
       noAplicaCell: null,
-      operacionCell: null,
-      fechaCell: null,
+      operacionCell: { row: 4, col: 2 }, // Valor por defecto: C5
+      fechaCell: { row: 4, col: 10 }, // Valor por defecto: K5
       cumplePctCell: null,
       cumpleParcialPctCell: null,
       noCumplePctCell: null,
@@ -526,47 +521,6 @@ export function ColumnConfigurator({
     return String(value)
   }
 
-  const handleCellClick = (rowIndex: number, colIndex: number) => {
-    // Para pasos de celdas (estadísticas), necesitamos fila y columna
-    if (currentStep === "totalItems") {
-      setConfig({ ...config, totalItemsCell: { row: rowIndex, col: colIndex } })
-      setCurrentStep("cumpleCell")
-    } else if (currentStep === "cumpleCell") {
-      setConfig({ ...config, cumpleCell: { row: rowIndex, col: colIndex } })
-      setCurrentStep("cumpleParcialCell")
-    } else if (currentStep === "cumpleParcialCell") {
-      setConfig({ ...config, cumpleParcialCell: { row: rowIndex, col: colIndex } })
-      setCurrentStep("noCumpleCell")
-    } else if (currentStep === "noCumpleCell") {
-      setConfig({ ...config, noCumpleCell: { row: rowIndex, col: colIndex } })
-      setCurrentStep("noAplicaCell")
-    } else if (currentStep === "noAplicaCell") {
-      setConfig({ ...config, noAplicaCell: { row: rowIndex, col: colIndex } })
-      setCurrentStep("operacionCell")
-    } else if (currentStep === "operacionCell") {
-      setConfig({ ...config, operacionCell: { row: rowIndex, col: colIndex } })
-      setCurrentStep("fechaCell")
-    } else if (currentStep === "fechaCell") {
-      setConfig({ ...config, fechaCell: { row: rowIndex, col: colIndex } })
-      setCurrentStep("cumplePctCell")
-    } else if (currentStep === "cumplePctCell") {
-      setConfig({ ...config, cumplePctCell: { row: rowIndex, col: colIndex } })
-      setCurrentStep("cumpleParcialPctCell")
-    } else if (currentStep === "cumpleParcialPctCell") {
-      setConfig({ ...config, cumpleParcialPctCell: { row: rowIndex, col: colIndex } })
-      setCurrentStep("noCumplePctCell")
-    } else if (currentStep === "noCumplePctCell") {
-      setConfig({ ...config, noCumplePctCell: { row: rowIndex, col: colIndex } })
-      setCurrentStep("noAplicaPctCell")
-    } else if (currentStep === "noAplicaPctCell") {
-      setConfig({ ...config, noAplicaPctCell: { row: rowIndex, col: colIndex } })
-      setCurrentStep("complete")
-    } else {
-      // Para pasos de columnas, solo necesitamos la columna
-      handleColumnClick(colIndex)
-    }
-  }
-
   const handleColumnClick = (colIndex: number) => {
     if (currentStep === "pregunta") {
       setConfig({ ...config, pregunta: colIndex })
@@ -585,62 +539,46 @@ export function ColumnConfigurator({
       setCurrentStep("observacion")
     } else if (currentStep === "observacion") {
       setConfig({ ...config, observacion: colIndex })
-      setCurrentStep("cumplimiento")
-    } else if (currentStep === "cumplimiento") {
-      // Para cumplimiento necesitamos fila y columna
-      // Por ahora solo guardamos la columna, la fila la detectaremos automáticamente
-      setConfig({ ...config, cumplimientoCol: colIndex })
-      setCurrentStep("totalItems")
+      // Saltar directamente a completar - usar valores por defecto para el resto
+      setCurrentStep("complete")
     }
   }
 
   const handleSkipObservacion = () => {
     setConfig({ ...config, observacion: null })
+    setCurrentStep("fechaCell")
+  }
+
+  const handleSkipFecha = () => {
+    // Usar valor por defecto: K5 (fila 4, col 10)
+    setConfig({ ...config, fechaCell: { row: 4, col: 10 } })
+    setCurrentStep("totalItems")
+  }
+
+  const handleSkipTotalItems = () => {
+    setConfig({ ...config, totalItemsCell: null })
     setCurrentStep("cumplimiento")
   }
 
   const handleSkipCumplimiento = () => {
     setConfig({ ...config, cumplimientoCol: null, cumplimientoRow: null })
-    setCurrentStep("totalItems")
-  }
-
-  const handleSkipStats = () => {
-    // Saltar todas las estadísticas y usar cálculos
-    setConfig({
-      ...config,
-      totalItemsCell: null,
-      cumpleCell: null,
-      cumpleParcialCell: null,
-      noCumpleCell: null,
-      noAplicaCell: null,
-    })
-    setCurrentStep("operacionCell")
-  }
-
-  const handleSkipOperacionFecha = () => {
-    // Saltar configuración de operación y fecha
-    setConfig({
-      ...config,
-      operacionCell: null,
-      fechaCell: null,
-    })
     setCurrentStep("cumplePctCell")
   }
 
   const handleSkipPorcentajes = () => {
-    // Saltar configuración de porcentajes (usar valores por defecto C13, D13, E13, F13)
+    // Usar valores por defecto: C13, D13, E13, F13 (fila 12, cols 2, 3, 4, 5)
     setConfig({
       ...config,
-      cumplePctCell: null,
-      cumpleParcialPctCell: null,
-      noCumplePctCell: null,
-      noAplicaPctCell: null,
+      cumplePctCell: { row: 12, col: 2 },
+      cumpleParcialPctCell: { row: 12, col: 3 },
+      noCumplePctCell: { row: 12, col: 4 },
+      noAplicaPctCell: { row: 12, col: 5 },
     })
     setCurrentStep("complete")
   }
 
   const handleComplete = () => {
-    // Las celdas de estadísticas son opcionales, solo requerimos las columnas básicas
+    // Solo requerimos las columnas básicas - el resto usa valores por defecto
     if (
       config.pregunta !== undefined &&
       config.cumple !== undefined &&
@@ -660,12 +598,13 @@ export function ColumnConfigurator({
         cumplimientoCol: config.cumplimientoCol ?? null,
         cumplimientoRow: config.cumplimientoRow ?? null,
         totalItemsCell: config.totalItemsCell ?? null,
-        cumpleCell: config.cumpleCell ?? null,
-        cumpleParcialCell: config.cumpleParcialCell ?? null,
-        noCumpleCell: config.noCumpleCell ?? null,
-        noAplicaCell: config.noAplicaCell ?? null,
-        operacionCell: config.operacionCell ?? null,
-        fechaCell: config.fechaCell ?? null,
+        cumpleCell: null,
+        cumpleParcialCell: null,
+        noCumpleCell: null,
+        noAplicaCell: null,
+        // Valores por defecto si no están configurados: C5 para operación (fila 4, col 2), K5 para fecha (fila 4, col 10)
+        operacionCell: config.operacionCell ?? { row: 4, col: 2 },
+        fechaCell: config.fechaCell ?? { row: 4, col: 10 },
         cumplePctCell: config.cumplePctCell ?? null,
         cumpleParcialPctCell: config.cumpleParcialPctCell ?? null,
         noCumplePctCell: config.noCumplePctCell ?? null,
@@ -687,8 +626,8 @@ export function ColumnConfigurator({
       cumpleParcialCell: null,
       noCumpleCell: null,
       noAplicaCell: null,
-      operacionCell: null,
-      fechaCell: null,
+      operacionCell: { row: 4, col: 2 }, // Valor por defecto: C5
+      fechaCell: { row: 4, col: 10 }, // Valor por defecto: K5
       cumplePctCell: null,
       cumpleParcialPctCell: null,
       noCumplePctCell: null,
@@ -869,11 +808,7 @@ export function ColumnConfigurator({
           <p className="text-sm text-muted-foreground">
             {currentStep === "observacion"
               ? "Haz clic en la columna de observaciones o salta este paso si no existe"
-              : currentStep === "cumplimiento"
-                ? "Haz clic en la columna donde está el porcentaje de cumplimiento (ej: % DE CUMPLIMIENTO)"
-                : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell"
-                  ? "Haz clic en la CELDA específica donde está este valor en el Excel (ej: fila 13, columna C para % Cumple)"
-                  : "Haz clic en la columna correspondiente en la fila de encabezados"}
+              : "Haz clic en la columna correspondiente en la fila de encabezados"}
           </p>
         </div>
 
@@ -885,11 +820,9 @@ export function ColumnConfigurator({
                 Excel Completo - {rawData.length} filas × {maxColumns} columnas
               </span>
               <span className="text-muted-foreground">
-                {currentStep === "cumplimiento" 
-                  ? "Selecciona una columna"
-                  : currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell"
-                    ? "Selecciona una celda específica"
-                    : "Selecciona una columna completa"}
+                {currentStep === "fechaCell" || currentStep === "totalItems" || currentStep === "cumplimiento" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell"
+                  ? "Selecciona una celda específica"
+                  : "Selecciona una columna completa"}
               </span>
             </div>
           </div>
@@ -903,87 +836,49 @@ export function ColumnConfigurator({
               maxRows={rawData.length}
               readOnly={true}
               onCellClick={(row, col) => {
-                if (currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell") {
+                // Para pasos de celdas específicas, permitir click en cualquier celda
+                if (currentStep === "fechaCell" || currentStep === "totalItems" || currentStep === "cumplimiento" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell") {
                   handleCellClick(row, col)
-                } else if (currentStep === "cumplimiento") {
-                  handleColumnClick(col)
                 } else if (row === headerRowIndex) {
+                  // Para pasos de columnas, solo permitir click en la fila de encabezados
                   handleColumnClick(col)
                 }
               }}
               selectedCells={(() => {
                 const selected: Array<{ row: number; col: number }> = []
-                if (currentStep === "totalItems" && config.totalItemsCell) {
-                  selected.push(config.totalItemsCell)
-                } else if (currentStep === "cumpleCell" && config.cumpleCell) {
-                  selected.push(config.cumpleCell)
-                } else if (currentStep === "cumpleParcialCell" && config.cumpleParcialCell) {
-                  selected.push(config.cumpleParcialCell)
-                } else if (currentStep === "noCumpleCell" && config.noCumpleCell) {
-                  selected.push(config.noCumpleCell)
-                } else if (currentStep === "noAplicaCell" && config.noAplicaCell) {
-                  selected.push(config.noAplicaCell)
-                } else if (currentStep === "operacionCell" && config.operacionCell) {
-                  selected.push(config.operacionCell)
-                } else if (currentStep === "fechaCell" && config.fechaCell) {
-                  selected.push(config.fechaCell)
-                } else if (currentStep === "cumplePctCell" && config.cumplePctCell) {
-                  selected.push(config.cumplePctCell)
-                } else if (currentStep === "cumpleParcialPctCell" && config.cumpleParcialPctCell) {
-                  selected.push(config.cumpleParcialPctCell)
-                } else if (currentStep === "noCumplePctCell" && config.noCumplePctCell) {
-                  selected.push(config.noCumplePctCell)
-                } else if (currentStep === "noAplicaPctCell" && config.noAplicaPctCell) {
-                  selected.push(config.noAplicaPctCell)
-                } else if (currentStep !== "totalItems" && currentStep !== "cumpleCell" && currentStep !== "cumpleParcialCell" && currentStep !== "noCumpleCell" && currentStep !== "noAplicaCell" && currentStep !== "operacionCell" && currentStep !== "fechaCell" && currentStep !== "cumplePctCell" && currentStep !== "cumpleParcialPctCell" && currentStep !== "noCumplePctCell" && currentStep !== "noAplicaPctCell") {
-                  // Para pasos de columnas, seleccionar toda la columna según el paso actual
-                  let colIndex: number | null = null
-                  if (currentStep === "pregunta" && config.pregunta !== null && config.pregunta !== undefined) {
-                    colIndex = config.pregunta
-                  } else if (currentStep === "cumple" && config.cumple !== null && config.cumple !== undefined) {
-                    colIndex = config.cumple
-                  } else if (currentStep === "cumpleParcial" && config.cumpleParcial !== null && config.cumpleParcial !== undefined) {
-                    colIndex = config.cumpleParcial
-                  } else if (currentStep === "noCumple" && config.noCumple !== null && config.noCumple !== undefined) {
-                    colIndex = config.noCumple
-                  } else if (currentStep === "noAplica" && config.noAplica !== null && config.noAplica !== undefined) {
-                    colIndex = config.noAplica
-                  } else if (currentStep === "observacion" && config.observacion !== null && config.observacion !== undefined) {
-                    colIndex = config.observacion
-                  } else if (currentStep === "cumplimiento" && config.cumplimientoCol !== null && config.cumplimientoCol !== undefined) {
-                    colIndex = config.cumplimientoCol
-                  }
-                  if (colIndex !== null && colIndex >= 0) {
-                    rawData.forEach((_, rowIdx) => {
-                      selected.push({ row: rowIdx, col: colIndex! })
-                    })
-                  }
+                // Para pasos de columnas, seleccionar toda la columna según el paso actual
+                let colIndex: number | null = null
+                if (currentStep === "pregunta" && config.pregunta !== null && config.pregunta !== undefined) {
+                  colIndex = config.pregunta
+                } else if (currentStep === "cumple" && config.cumple !== null && config.cumple !== undefined) {
+                  colIndex = config.cumple
+                } else if (currentStep === "cumpleParcial" && config.cumpleParcial !== null && config.cumpleParcial !== undefined) {
+                  colIndex = config.cumpleParcial
+                } else if (currentStep === "noCumple" && config.noCumple !== null && config.noCumple !== undefined) {
+                  colIndex = config.noCumple
+                } else if (currentStep === "noAplica" && config.noAplica !== null && config.noAplica !== undefined) {
+                  colIndex = config.noAplica
+                } else if (currentStep === "observacion" && config.observacion !== null && config.observacion !== undefined) {
+                  colIndex = config.observacion
+                }
+                if (colIndex !== null && colIndex >= 0) {
+                  rawData.forEach((_, rowIdx) => {
+                    selected.push({ row: rowIdx, col: colIndex! })
+                  })
                 }
                 return selected
               })()}
               highlightedCells={(() => {
                 const highlighted: Array<{ row: number; col: number; label?: string }> = []
                 // Resaltar celdas previamente configuradas
+                if (config.fechaCell && currentStep !== "fechaCell") {
+                  highlighted.push({ ...config.fechaCell, label: "Fecha" })
+                }
                 if (config.totalItemsCell && currentStep !== "totalItems") {
                   highlighted.push({ ...config.totalItemsCell, label: "Total Items" })
                 }
-                if (config.cumpleCell && currentStep !== "cumpleCell") {
-                  highlighted.push({ ...config.cumpleCell, label: "Cumple" })
-                }
-                if (config.cumpleParcialCell && currentStep !== "cumpleParcialCell") {
-                  highlighted.push({ ...config.cumpleParcialCell, label: "Cumple Parcial" })
-                }
-                if (config.noCumpleCell && currentStep !== "noCumpleCell") {
-                  highlighted.push({ ...config.noCumpleCell, label: "No Cumple" })
-                }
-                if (config.noAplicaCell && currentStep !== "noAplicaCell") {
-                  highlighted.push({ ...config.noAplicaCell, label: "No Aplica" })
-                }
-                if (config.operacionCell && currentStep !== "operacionCell") {
-                  highlighted.push({ ...config.operacionCell, label: "Operación" })
-                }
-                if (config.fechaCell && currentStep !== "fechaCell") {
-                  highlighted.push({ ...config.fechaCell, label: "Fecha" })
+                if (config.cumplimientoRow !== null && config.cumplimientoCol !== null && currentStep !== "cumplimiento") {
+                  highlighted.push({ row: config.cumplimientoRow, col: config.cumplimientoCol, label: "Cumplimiento" })
                 }
                 if (config.cumplePctCell && currentStep !== "cumplePctCell") {
                   highlighted.push({ ...config.cumplePctCell, label: "% Cumple" })
@@ -1042,26 +937,26 @@ export function ColumnConfigurator({
           </div>
         )}
 
-        {currentStep === "cumplimiento" && (
+        {currentStep === "fechaCell" && (
           <div className="flex gap-2">
-            <Button variant="outline" onClick={handleSkipCumplimiento} className="flex-1">
-              Saltar (Calcular automáticamente)
+            <Button variant="outline" onClick={handleSkipFecha} className="flex-1">
+              Saltar (Usar valor por defecto: K5)
             </Button>
           </div>
         )}
 
-        {(currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell") && (
+        {currentStep === "totalItems" && (
           <div className="flex gap-2">
-            <Button variant="outline" onClick={handleSkipStats} className="flex-1">
+            <Button variant="outline" onClick={handleSkipTotalItems} className="flex-1">
               Saltar (Calcular desde items parseados)
             </Button>
           </div>
         )}
 
-        {(currentStep === "operacionCell" || currentStep === "fechaCell") && (
+        {currentStep === "cumplimiento" && (
           <div className="flex gap-2">
-            <Button variant="outline" onClick={handleSkipOperacionFecha} className="flex-1">
-              Saltar (Usar valores por defecto: C5 y K5)
+            <Button variant="outline" onClick={handleSkipCumplimiento} className="flex-1">
+              Saltar (Calcular automáticamente)
             </Button>
           </div>
         )}
