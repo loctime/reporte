@@ -61,7 +61,8 @@
     "vaul": "^1.1.2",
     "xlsx": "latest",
     "exceljs": "^4.4.0",
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "react-spreadsheet": "^2.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.9",

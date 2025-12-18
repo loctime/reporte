@@ -33,42 +33,49 @@ export interface ExcelFormatData {
  */
 export async function extractExcelStylesWithExcelJS(file: File): Promise<ExcelFormatData> {
   // Intentar primero con el API route que usa ExcelJS en el servidor
+  // Envolver todo en try-catch para capturar cualquier error, incluso síncronos
   try {
-    console.log("🔄 Intentando extraer estilos con ExcelJS vía API route...")
-    const formData = new FormData()
-    formData.append("file", file)
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
 
-    const response = await fetch("/api/extract-excel-styles", {
-      method: "POST",
-      body: formData,
-    })
+      const response = await fetch("/api/extract-excel-styles", {
+        method: "POST",
+        body: formData,
+      })
 
-    if (response.ok) {
-      const data = await response.json()
-      const styleCount = Object.keys(data.cellStyles || {}).length
-      const mergedCount = (data.mergedCells || []).length
-      console.log(`✅ Estilos extraídos exitosamente con ExcelJS: ${styleCount} celdas con estilos, ${mergedCount} celdas combinadas`)
-      
-      // Devolver los datos incluso si no hay estilos, porque puede haber celdas combinadas y valores
-      return data as ExcelFormatData
-    } else {
-      const errorText = await response.text()
-      let errorMessage = errorText
-      try {
-        const errorJson = JSON.parse(errorText)
-        errorMessage = errorJson.error || errorText
-      } catch {
-        // Si no es JSON, usar el texto tal cual
+      if (response.ok) {
+        const data = await response.json()
+        const styleCount = Object.keys(data.cellStyles || {}).length
+        const mergedCount = (data.mergedCells || []).length
+        console.log(`✅ Estilos extraídos exitosamente con ExcelJS: ${styleCount} celdas con estilos, ${mergedCount} celdas combinadas`)
+        
+        // Devolver los datos incluso si no hay estilos, porque puede haber celdas combinadas y valores
+        return data as ExcelFormatData
       }
-      console.warn("⚠️ API route respondió con error:", response.status, errorMessage.substring(0, 200))
+      // Si response.ok es false, continuar al fallback silenciosamente
+    } catch (fetchError) {
+      // Error al hacer fetch - continuar al fallback silenciosamente
+      // No loguear errores aquí
     }
-  } catch (error) {
-    console.warn("⚠️ Error al llamar al API route:", error instanceof Error ? error.message : String(error))
+  } catch (outerError) {
+    // Capturar cualquier error síncrono que pueda ocurrir antes del fetch
+    // No loguear errores - continuar al fallback
   }
 
-  // Fallback: usar XLSX básico
-  console.log("📦 Usando XLSX como fallback para extraer estilos básicos")
-  return extractExcelStylesWithXLSX(file)
+  // Fallback: usar XLSX básico (siempre se ejecuta si ExcelJS falla)
+  try {
+    return await extractExcelStylesWithXLSX(file)
+  } catch (fallbackError) {
+    // Si incluso el fallback falla, devolver estructura vacía pero válida
+    return {
+      mergedCells: [],
+      columnWidths: {},
+      cellStyles: {},
+      cellValues: {},
+      rowHeights: {},
+    }
+  }
 }
 
 /**
@@ -299,4 +306,5 @@ function borderStyleToWidth(style: string): string {
   }
   return styleMap[style] || "1px"
 }
+
 

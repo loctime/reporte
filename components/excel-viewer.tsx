@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useEffect } from "react"
+import React, { useMemo, useState, useEffect } from "react"
 import { cn } from "@/lib/utils"
 import * as XLSX from "xlsx"
 import { extractExcelStylesWithExcelJS, type ExcelFormatData } from "@/lib/excel-styles-extractor"
@@ -39,14 +39,16 @@ export function ExcelViewer({
     if (file) {
       setIsLoadingStyles(true)
       // Intentar cargar estilos, pero si falla, usar XLSX como fallback
-      extractExcelStylesWithExcelJS(file)
+      // Envolver en try-catch adicional para capturar errores síncronos
+      Promise.resolve()
+        .then(() => extractExcelStylesWithExcelJS(file))
         .then((format) => {
           setExceljsFormat(format)
           setIsLoadingStyles(false)
         })
         .catch((error) => {
           // Error al cargar estilos con ExcelJS, usar XLSX como fallback
-          console.warn("⚠️ No se pudieron cargar estilos con ExcelJS, usando fallback XLSX:", error)
+          // No loguear el error - el fallback XLSX se maneja automáticamente en extractExcelStylesWithExcelJS
           setIsLoadingStyles(false)
           // No establecer null aquí, el fallback XLSX ya devuelve datos
           setExceljsFormat(null)
@@ -210,11 +212,11 @@ export function ExcelViewer({
     if (exceljsFormat) {
       const exceljsStyle = exceljsFormat.cellStyles[cellAddress]
       if (exceljsStyle) {
-        const borderStyle: React.CSSProperties = {}
+        const borderStyle: any = {}
         if (exceljsStyle.borders) {
           Object.entries(exceljsStyle.borders).forEach(([side, border]) => {
-            borderStyle[`border${side.charAt(0).toUpperCase() + side.slice(1)}` as keyof React.CSSProperties] = 
-              `${border.width} solid ${border.color}`
+            const borderKey = `border${side.charAt(0).toUpperCase() + side.slice(1)}` as keyof React.CSSProperties
+            borderStyle[borderKey] = `${border.width} solid ${border.color}`
           })
         }
 
@@ -245,7 +247,7 @@ export function ExcelViewer({
 
     const textColor = style.font?.color ? excelColorToCSS(style.font.color) : undefined
 
-    const borderStyle: React.CSSProperties = {}
+    const borderStyle: any = {}
     if (style.border) {
       const borders = ["top", "bottom", "left", "right"] as const
       borders.forEach((side) => {
@@ -257,7 +259,8 @@ export function ExcelViewer({
                             border.style === "thick" ? "3px" :
                             border.style === "double" ? "3px" : "1px"
           
-          borderStyle[`border${side.charAt(0).toUpperCase() + side.slice(1)}`] = `${borderWidth} solid ${borderColor}`
+          const borderKey = `border${side.charAt(0).toUpperCase() + side.slice(1)}` as keyof React.CSSProperties
+          borderStyle[borderKey] = `${borderWidth} solid ${borderColor}`
         }
       })
     }
@@ -288,17 +291,34 @@ export function ExcelViewer({
       return ""
     }
     
-    // Obtener la dirección de la celda
-    const cellAddress = getCellAddress(rowIndex, colIndex)
+    // Determinar qué celda usar para obtener el valor
+    // Si está en un merge, usar siempre la celda inicial del merge
+    let actualRowIndex = rowIndex
+    let actualColIndex = colIndex
+    
+    if (mergedInfo.isMerged) {
+      // Encontrar el merge que contiene esta celda para obtener las coordenadas de la celda inicial
+      const containingMerge = excelFormat.mergedCells.find(
+        (m) => 
+          rowIndex >= m.s.r && rowIndex <= m.e.r &&
+          colIndex >= m.s.c && colIndex <= m.e.c
+      )
+      if (containingMerge) {
+        actualRowIndex = containingMerge.s.r
+        actualColIndex = containingMerge.s.c
+      }
+    }
+    
+    // Obtener la dirección de la celda (usar la celda inicial si está en un merge)
+    const cellAddress = getCellAddress(actualRowIndex, actualColIndex)
     
     // Priorizar valores de ExcelJS si están disponibles (estos ya tienen el valor correcto en la celda inicial)
     let rawValue = exceljsFormat?.cellValues[cellAddress] ?? 
                    excelFormat.cellValues[cellAddress]
     
-    // Si no hay valor en los formatos extraídos, usar rawData SOLO si no está en un merge
-    // (porque rawData puede tener valores duplicados en celdas combinadas)
-    if ((rawValue === null || rawValue === undefined || rawValue === "") && !mergedInfo.isMerged) {
-      rawValue = rawData[rowIndex]?.[colIndex]
+    // Si no hay valor en los formatos extraídos, usar rawData de la celda inicial del merge
+    if (rawValue === null || rawValue === undefined || rawValue === "") {
+      rawValue = rawData[actualRowIndex]?.[actualColIndex]
     }
 
     if (rawValue === null || rawValue === undefined || rawValue === "") {
@@ -329,8 +349,41 @@ export function ExcelViewer({
       }
     }
 
-    // Convertir a string final
+    // Convertir a string final con formato
     if (typeof rawValue === "number") {
+      // Verificar si es un porcentaje (formato de Excel)
+      // Los porcentajes en Excel pueden estar como decimal (0.68) o como número (68)
+      // Intentar detectar si la celda tiene formato de porcentaje
+      const cellAddress = getCellAddress(actualRowIndex, actualColIndex)
+      const cell = sheet?.[cellAddress]
+      
+      // Verificar formato de porcentaje en XLSX
+      if (cell && cell.z) {
+        // cell.z contiene el formato de número
+        const format = String(cell.z)
+        if (format.includes("%") || format.includes("0%") || format.includes("0.0%")) {
+          // Es un porcentaje - formatear según el formato
+          if (rawValue < 1 && rawValue > 0) {
+            // Es decimal (0.68 = 68%)
+            return `${(rawValue * 100).toFixed(0)}%`
+          } else if (rawValue >= 1 && rawValue <= 100) {
+            // Ya está como porcentaje (68 = 68%)
+            return `${rawValue.toFixed(0)}%`
+          }
+        }
+      }
+      
+      // Verificar si el valor parece ser un porcentaje decimal (0-1)
+      if (rawValue > 0 && rawValue < 1 && rawValue !== Math.floor(rawValue)) {
+        // Podría ser un porcentaje decimal, pero solo formatearlo si parece razonable
+        // (evitar formatear números como 0.5 que podrían ser fracciones)
+        const asPercent = rawValue * 100
+        if (asPercent >= 0.1 && asPercent <= 100) {
+          // Formatear como porcentaje solo si está en un rango razonable
+          return `${asPercent.toFixed(0)}%`
+        }
+      }
+      
       return String(rawValue)
     }
 
@@ -344,7 +397,7 @@ export function ExcelViewer({
 
   // Función para obtener la altura de fila
   const getRowHeight = (rowIndex: number): number => {
-    return excelFormat.rowHeights[rowIndex] || 32
+    return (excelFormat.rowHeights as Record<number, number>)[rowIndex] || 32
   }
 
   // Calcular el número máximo de columnas
@@ -352,6 +405,22 @@ export function ExcelViewer({
 
   // Filas a mostrar
   const rowsToShow = rawData.slice(0, maxRows)
+
+  // Crear Set de celdas ocupadas por merges (para saltarlas en el renderizado)
+  const occupiedCells = useMemo(() => {
+    const occupied = new Set<string>()
+    excelFormat.mergedCells.forEach((merge) => {
+      for (let r = merge.s.r; r <= merge.e.r; r++) {
+        for (let c = merge.s.c; c <= merge.e.c; c++) {
+          // Marcar todas las celdas del merge excepto la inicial
+          if (!(r === merge.s.r && c === merge.s.c)) {
+            occupied.add(`${r},${c}`)
+          }
+        }
+      }
+    })
+    return occupied
+  }, [excelFormat.mergedCells])
 
   return (
     <div className={cn("border border-gray-300 rounded-lg overflow-hidden bg-white", className)}>
@@ -362,189 +431,137 @@ export function ExcelViewer({
 
       {/* Contenedor con scroll */}
       <div className="overflow-auto max-h-[600px] bg-white">
-        <div className="inline-block min-w-full">
-          {/* Encabezado de columnas (A, B, C, ...) */}
-          <div className="flex sticky top-0 z-20 bg-gray-50 border-b-2 border-gray-400">
-            {/* Celda vacía para alinear con números de fila */}
-            <div className="bg-gray-200 border-r border-b border-gray-400 min-w-[50px] w-[50px] h-6 flex items-center justify-center text-xs font-semibold text-gray-700 sticky left-0 z-30">
-              {/* Espacio para números de fila */}
-            </div>
-            {Array.from({ length: maxColumns }).map((_, colIndex) => {
-              const colWidth = getColumnWidth(colIndex)
-              return (
-                <div
+        <table className="border-collapse" style={{ tableLayout: "auto", minWidth: "100%" }}>
+          <colgroup>
+            <col style={{ width: "50px" }} />
+            {Array.from({ length: maxColumns }).map((_, colIndex) => (
+              <col key={colIndex} style={{ width: `${getColumnWidth(colIndex)}px`, minWidth: `${getColumnWidth(colIndex)}px` }} />
+            ))}
+          </colgroup>
+          
+          <thead>
+            <tr>
+              <th className="bg-gray-200 border border-gray-400 p-1 text-xs text-center sticky left-0 z-30 bg-gray-200">
+                {/* Espacio para números de fila */}
+              </th>
+              {Array.from({ length: maxColumns }).map((_, colIndex) => (
+                <th
                   key={colIndex}
-                  className="bg-gray-50 border-r border-b border-gray-400 h-6 flex items-center justify-center text-xs font-semibold text-gray-700"
-                  style={{ minWidth: `${colWidth}px`, width: `${colWidth}px` }}
+                  className="bg-gray-50 border border-gray-400 p-1 text-xs text-center font-semibold sticky top-0 z-20"
                 >
                   {colIndexToExcel(colIndex)}
-                </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+
+          <tbody>
+            {rowsToShow.map((row, rowIndex) => {
+              const rowHeight = getRowHeight(rowIndex)
+              
+              return (
+                <tr key={rowIndex} style={{ height: `${rowHeight}px` }}>
+                  <td className="bg-gray-100 border border-gray-400 p-1 text-xs text-center sticky left-0 z-10">
+                    {rowIndex + 1}
+                  </td>
+                  
+                  {(() => {
+                    const cells: React.ReactElement[] = []
+                    const renderedCols = new Set<number>()
+                    
+                    for (let colIndex = 0; colIndex < maxColumns; colIndex++) {
+                      // Si esta columna ya fue cubierta por un colspan anterior, saltarla
+                      if (renderedCols.has(colIndex)) {
+                        continue
+                      }
+                      
+                      // Verificar si está ocupada por un merge
+                      const isOccupied = occupiedCells.has(`${rowIndex},${colIndex}`)
+                      const mergedInfo = getMergedCellInfo(rowIndex, colIndex)
+                      
+                      // Si está ocupada O está en un merge pero NO es la inicial, saltarla
+                      if (isOccupied || (mergedInfo.isMerged && !mergedInfo.isStartCell)) {
+                        continue
+                      }
+
+                      const cellValue = getCellValue(rowIndex, colIndex)
+                      const cellStyle = getCellStyle(rowIndex, colIndex)
+                      
+                      const isSelected = selectedCells.some(cell => cell.row === rowIndex && cell.col === colIndex)
+                      const highlighted = highlightedCells.find(cell => cell.row === rowIndex && cell.col === colIndex)
+
+                      // Aplicar rowspan y colspan solo si es la celda inicial del merge
+                      const rowSpan = mergedInfo.isMerged && mergedInfo.isStartCell && mergedInfo.rowSpan > 1 ? mergedInfo.rowSpan : undefined
+                      const colSpan = mergedInfo.isMerged && mergedInfo.isStartCell && mergedInfo.colSpan > 1 ? mergedInfo.colSpan : undefined
+
+                      // Marcar las columnas que serán cubiertas por este colspan
+                      if (colSpan && colSpan > 1) {
+                        for (let c = colIndex; c < colIndex + colSpan; c++) {
+                          renderedCols.add(c)
+                        }
+                      } else {
+                        renderedCols.add(colIndex)
+                      }
+
+                      // Aplicar bordes por defecto solo si no hay bordes definidos en el estilo
+                      const hasCustomBorders = cellStyle.borderTop || cellStyle.borderBottom || 
+                                              cellStyle.borderLeft || cellStyle.borderRight
+
+                      const tdProps: any = {
+                        className: cn(
+                          "p-1 text-xs",
+                          !hasCustomBorders && "border border-gray-300",
+                          isSelected && "ring-2 ring-blue-500",
+                          highlighted && !isSelected && "ring-1 ring-yellow-400",
+                          onCellClick && "cursor-pointer hover:opacity-80"
+                        ),
+                        style: {
+                          ...cellStyle,
+                          ...(isSelected && !cellStyle.backgroundColor && { backgroundColor: "rgba(59, 130, 246, 0.1)" }),
+                          ...(highlighted && !isSelected && !cellStyle.backgroundColor && { backgroundColor: "rgba(250, 204, 21, 0.2)" }),
+                        },
+                        onClick: () => onCellClick?.(rowIndex, colIndex),
+                        title: highlighted?.label || cellValue || `Fila ${rowIndex + 1}, Col ${colIndex + 1}`,
+                      }
+                      
+                      // Aplicar rowSpan y colSpan solo si tienen valores válidos
+                      if (rowSpan && rowSpan > 1) {
+                        tdProps.rowSpan = rowSpan
+                      }
+                      if (colSpan && colSpan > 1) {
+                        tdProps.colSpan = colSpan
+                      }
+
+                      cells.push(
+                        <td key={colIndex} {...tdProps}>
+                          <div className="truncate w-full" style={{ 
+                            color: cellStyle.color,
+                            fontWeight: cellStyle.fontWeight,
+                            fontSize: cellStyle.fontSize,
+                            textAlign: cellStyle.textAlign as any,
+                            verticalAlign: cellStyle.verticalAlign as any,
+                          }}>
+                            {cellValue}
+                          </div>
+                          {highlighted?.label && (
+                            <div className="absolute top-0 right-0 bg-yellow-400 text-yellow-900 text-[8px] px-1 rounded-bl z-10">
+                              {highlighted.label}
+                            </div>
+                          )}
+                        </td>
+                      )
+                    }
+                    
+                    return cells
+                  })()}
+                </tr>
               )
             })}
-          </div>
-
-          {/* Filas del Excel */}
-          {rowsToShow.map((row, rowIndex) => {
-            // Verificar si esta fila está dentro de un merge vertical (pero no es la fila inicial)
-            const isInVerticalMerge = excelFormat.mergedCells.some(merge => 
-              rowIndex > merge.s.r && rowIndex <= merge.e.r
-            )
-            
-            // Si está en un merge vertical pero no es la fila inicial, usar altura normal
-            const rowHeight = getRowHeight(rowIndex)
-            
-            return (
-              <div key={rowIndex} className="flex" style={{ height: `${rowHeight}px`, minHeight: `${rowHeight}px` }}>
-                {/* Número de fila (sticky) */}
-                <div 
-                  className="bg-gray-100 border-r border-b border-gray-400 min-w-[50px] w-[50px] flex items-center justify-center text-xs font-medium text-gray-600 sticky left-0 z-10"
-                  style={{ height: `${rowHeight}px`, minHeight: `${rowHeight}px` }}
-                >
-                  {rowIndex + 1}
-                </div>
-
-                {/* Celdas de la fila */}
-                {Array.from({ length: maxColumns }).map((_, colIndex) => {
-                  // Verificar si esta celda está en un merged range
-                  const mergedInfo = getMergedCellInfo(rowIndex, colIndex)
-
-                  // Si está en un merge pero NO es la celda inicial, renderizar celda vacía (sin texto)
-                  if (mergedInfo.isMerged && !mergedInfo.isStartCell) {
-                    // Encontrar el merge que contiene esta celda
-                    const containingMerge = excelFormat.mergedCells.find(
-                      (m) => 
-                        rowIndex >= m.s.r && rowIndex <= m.e.r &&
-                        colIndex >= m.s.c && colIndex <= m.e.c
-                    )
-                    
-                    // Obtener el estilo de la celda inicial del merge para mantener consistencia
-                    let mergedBgColor: string | undefined
-                    if (containingMerge) {
-                      const startCellAddress = getCellAddress(containingMerge.s.r, containingMerge.s.c)
-                      
-                      // Priorizar estilos de ExcelJS si están disponibles
-                      if (exceljsFormat) {
-                        const exceljsStyle = exceljsFormat.cellStyles[startCellAddress]
-                        if (exceljsStyle?.backgroundColor) {
-                          mergedBgColor = exceljsStyle.backgroundColor
-                        }
-                      }
-                      
-                      // Fallback a estilos de XLSX
-                      if (!mergedBgColor) {
-                        const mergedStyle = excelFormat.cellStyles[startCellAddress] || {}
-                        mergedBgColor = mergedStyle.fill?.fgColor 
-                          ? excelColorToCSS(mergedStyle.fill.fgColor)
-                          : mergedStyle.fill?.bgColor
-                            ? excelColorToCSS(mergedStyle.fill.bgColor)
-                            : mergedStyle.backgroundColor
-                              ? excelColorToCSS(mergedStyle.backgroundColor)
-                              : undefined
-                      }
-                    }
-                    
-                    // Calcular altura de esta celda (puede ser parte de un merge vertical)
-                    const cellRowHeight = getRowHeight(rowIndex)
-                    
-                    return (
-                      <div
-                        key={colIndex}
-                        className="border-r border-b border-gray-300"
-                        style={{
-                          minWidth: `${getColumnWidth(colIndex)}px`,
-                          width: `${getColumnWidth(colIndex)}px`,
-                          height: `${cellRowHeight}px`,
-                          minHeight: `${cellRowHeight}px`,
-                          backgroundColor: mergedBgColor,
-                        }}
-                      />
-                    )
-                  }
-
-                  const cellValue = getCellValue(rowIndex, colIndex)
-                  const cellStyle = getCellStyle(rowIndex, colIndex)
-
-                  // Verificar si está seleccionada
-                  const isSelected = selectedCells.some(
-                    (c) => c.row === rowIndex && c.col === colIndex
-                  )
-
-                  // Verificar si está resaltada
-                  const highlighted = highlightedCells.find(
-                    (c) => c.row === rowIndex && c.col === colIndex
-                  )
-
-                  const colWidth = getColumnWidth(colIndex)
-                  let totalWidth = colWidth
-                  let totalHeight = 32 // Altura por defecto
-                  
-                  if (mergedInfo.isMerged && mergedInfo.isStartCell) {
-                    // Calcular ancho total de celdas combinadas horizontalmente
-                    totalWidth = 0
-                    for (let c = colIndex; c <= colIndex + mergedInfo.colSpan - 1; c++) {
-                      totalWidth += getColumnWidth(c)
-                    }
-                    
-                    // Calcular altura total de celdas combinadas verticalmente
-                    totalHeight = 0
-                    for (let r = rowIndex; r <= rowIndex + mergedInfo.rowSpan - 1; r++) {
-                      // Usar altura de fila si está disponible, sino 32px por defecto
-                      const rowHeight = excelFormat.rowHeights[r] || 32
-                      totalHeight += rowHeight
-                    }
-                  }
-
-                  // Aplicar bordes por defecto solo si no hay bordes definidos en el estilo
-                  const hasCustomBorders = cellStyle.borderTop || cellStyle.borderBottom || 
-                                          cellStyle.borderLeft || cellStyle.borderRight
-                  
-                  return (
-                    <div
-                      key={colIndex}
-                      className={cn(
-                        "p-1 text-xs overflow-hidden relative",
-                        !hasCustomBorders && "border-r border-b border-gray-300",
-                        isSelected && "ring-2 ring-blue-500 ring-offset-1",
-                        highlighted && !isSelected && "ring-1 ring-yellow-400",
-                        onCellClick && "cursor-pointer hover:opacity-80",
-                        mergedInfo.isMerged && mergedInfo.isStartCell && "flex items-center justify-center"
-                      )}
-                      style={{
-                        minWidth: `${totalWidth}px`,
-                        width: `${totalWidth}px`,
-                        height: `${totalHeight}px`,
-                        minHeight: `${totalHeight}px`,
-                        ...cellStyle,
-                        // Si está seleccionada o resaltada, mantener el color de fondo pero con overlay
-                        ...(isSelected && !cellStyle.backgroundColor && { backgroundColor: "rgba(59, 130, 246, 0.1)" }),
-                        ...(highlighted && !isSelected && !cellStyle.backgroundColor && { backgroundColor: "rgba(250, 204, 21, 0.2)" }),
-                      }}
-                      onClick={() => onCellClick?.(rowIndex, colIndex)}
-                      title={highlighted?.label || cellValue || `Fila ${rowIndex + 1}, Col ${colIndex + 1}`}
-                    >
-                      <div className="truncate w-full" title={cellValue} style={{ 
-                        color: cellStyle.color,
-                        fontWeight: cellStyle.fontWeight,
-                        fontSize: cellStyle.fontSize,
-                        textAlign: cellStyle.textAlign as any,
-                        verticalAlign: cellStyle.verticalAlign as any,
-                      }}>
-                        {cellValue}
-                      </div>
-                      {highlighted?.label && (
-                        <div className="absolute top-0 right-0 bg-yellow-400 text-yellow-900 text-[8px] px-1 rounded-bl z-10">
-                          {highlighted.label}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )
-          })}
-        </div>
+          </tbody>
+        </table>
       </div>
     </div>
   )
 }
+
 

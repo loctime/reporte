@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -8,6 +8,8 @@ import { CheckCircle2, X, AlertCircle } from "lucide-react"
 import { saveColumnConfig, loadColumnConfig, type ColumnConfig } from "@/lib/column-config"
 import { cn, formatDate } from "@/lib/utils"
 import * as XLSX from "xlsx"
+import { extractExcelStylesWithExcelJS, type ExcelFormatData } from "@/lib/excel-styles-extractor"
+import { ExcelHandsontableViewer } from "@/components/excel-handsontable-viewer"
 
 interface ColumnConfiguratorProps {
   rawData: any[][]
@@ -15,6 +17,7 @@ interface ColumnConfiguratorProps {
   onConfigComplete: (config: ColumnConfig) => void
   onSkip: () => void
   sheet?: XLSX.WorkSheet // Objeto sheet completo para obtener formato
+  file?: File // Archivo Excel opcional para usar ExcelJS (mejor extracción de estilos)
 }
 
 type ConfigStep = "pregunta" | "cumple" | "cumpleParcial" | "noCumple" | "noAplica" | "observacion" | "cumplimiento" | "totalItems" | "cumpleCell" | "cumpleParcialCell" | "noCumpleCell" | "noAplicaCell" | "operacionCell" | "fechaCell" | "cumplePctCell" | "cumpleParcialPctCell" | "noCumplePctCell" | "noAplicaPctCell" | "complete"
@@ -47,7 +50,30 @@ export function ColumnConfigurator({
   onConfigComplete,
   onSkip,
   sheet,
+  file,
 }: ColumnConfiguratorProps) {
+  const [exceljsFormat, setExceljsFormat] = useState<ExcelFormatData | null>(null)
+  const [isLoadingStyles, setIsLoadingStyles] = useState(false)
+
+  // Cargar estilos con ExcelJS si hay un archivo (mejor extracción de estilos y colores)
+  useEffect(() => {
+    if (file) {
+      setIsLoadingStyles(true)
+      extractExcelStylesWithExcelJS(file)
+        .then((format) => {
+          setExceljsFormat(format)
+          setIsLoadingStyles(false)
+        })
+        .catch((error) => {
+          // Error al cargar estilos con ExcelJS, usar XLSX como fallback
+          // No loguear el error - el fallback XLSX se maneja automáticamente en extractExcelStylesWithExcelJS
+          setIsLoadingStyles(false)
+          setExceljsFormat(null)
+        })
+    } else {
+      setExceljsFormat(null)
+    }
+  }, [file])
   const [currentStep, setCurrentStep] = useState<ConfigStep>("pregunta")
   const [config, setConfig] = useState<Partial<ColumnConfig>>(() => {
     // Cargar configuración guardada si existe
@@ -79,9 +105,26 @@ export function ColumnConfigurator({
 
   const [selectedRow, setSelectedRow] = useState<number | null>(null)
 
-  // Extraer información de formato del Excel
+  // Extraer información de formato del Excel (usar ExcelJS si está disponible, sino XLSX)
   const excelFormat = useMemo(() => {
-    if (!sheet) return { mergedCells: [], columnWidths: {}, cellStyles: {}, rowHeights: {} }
+    // Si tenemos datos de ExcelJS, usarlos (son más completos y precisos)
+    if (exceljsFormat) {
+      return {
+        mergedCells: exceljsFormat.mergedCells,
+        columnWidths: exceljsFormat.columnWidths,
+        cellStyles: exceljsFormat.cellStyles,
+        cellValues: exceljsFormat.cellValues,
+        rowHeights: exceljsFormat.rowHeights,
+      }
+    }
+
+    // Fallback a XLSX
+    if (!sheet) return { mergedCells: [], columnWidths: {}, cellStyles: {}, rowHeights: {}, cellValues: {} }
+    
+    // DEBUG: Log de merged cells para verificar que se están extrayendo
+    if (sheet['!merges'] && sheet['!merges'].length > 0) {
+      console.log(`📊 Celdas combinadas detectadas: ${sheet['!merges'].length} merges encontrados`)
+    }
 
     // Extraer merged cells
     const mergedCells: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }> = []
@@ -99,12 +142,30 @@ export function ColumnConfigurator({
     if (sheet['!cols']) {
       sheet['!cols'].forEach((col: any, index: number) => {
         if (col && col.w) {
-          // w está en caracteres, convertir a píxeles aproximados (1 char ≈ 7px)
-          columnWidths[index] = col.w * 7
+          // Excel almacena anchos en unidades de "caracteres estándar"
+          // La conversión precisa es: 1 unidad Excel ≈ 7-8 píxeles (depende de la fuente)
+          // Usar 7.5 como promedio
+          columnWidths[index] = col.w * 7.5
         } else if (col && col.width) {
-          columnWidths[index] = col.width * 7
+          columnWidths[index] = col.width * 7.5
+        } else {
+          // Ancho por defecto si no está especificado
+          columnWidths[index] = 80
         }
       })
+    } else {
+      // Si no hay !cols, calcular anchos basados en el contenido como fallback
+      for (let i = 0; i < maxColumns; i++) {
+        let maxLength = 0
+        rawData.forEach(row => {
+          const cellValue = String(row[i] || '')
+          if (cellValue.length > maxLength) {
+            maxLength = cellValue.length
+          }
+        })
+        // Aproximación: 1 carácter ≈ 8px + padding (16px)
+        columnWidths[i] = Math.max(maxLength * 8 + 16, 80)
+      }
     }
 
     // Extraer alturas de fila
@@ -121,22 +182,56 @@ export function ColumnConfigurator({
       })
     }
 
-    // Extraer estilos de celdas
+    // Extraer estilos de celdas y valores
     const cellStyles: Record<string, any> = {}
+    const cellValues: Record<string, any> = {}
     Object.keys(sheet).forEach((key) => {
       if (key.startsWith('!')) return
       const cell = sheet[key]
-      if (cell && cell.s) {
-        cellStyles[key] = cell.s
+      if (cell) {
+        // Extraer valor de la celda (solo en la celda inicial si está en un merge)
+        if (cell.v !== null && cell.v !== undefined) {
+          cellValues[key] = cell.v
+        }
+        
+        // XLSX puede tener estilos en cell.s, pero también necesitamos verificar otras propiedades
+        if (cell.s) {
+          cellStyles[key] = cell.s
+        }
+        // También intentar extraer directamente si no hay cell.s pero hay propiedades de estilo
+        // Esto puede pasar con algunos formatos de Excel
+        if (!cell.s && (cell.f || cell.z)) {
+          // Intentar construir un objeto de estilo básico
+          const basicStyle: any = {}
+          if (cell.f) {
+            basicStyle.fill = cell.f
+          }
+          if (cell.z) {
+            basicStyle.font = cell.z
+          }
+          if (Object.keys(basicStyle).length > 0) {
+            cellStyles[key] = basicStyle
+          }
+        }
+        // También verificar cell.pattern para colores de relleno
+        if (cell.s && cell.s.pattern) {
+          if (!cellStyles[key]) {
+            cellStyles[key] = {}
+          }
+          if (!cellStyles[key].pattern) {
+            cellStyles[key].pattern = cell.s.pattern
+          }
+        }
       }
     })
 
-    return { mergedCells, columnWidths, cellStyles, rowHeights }
-  }, [sheet])
+    return { mergedCells, columnWidths, cellStyles, rowHeights, cellValues }
+  }, [sheet, exceljsFormat])
 
   // Función para verificar si una celda está en un merged range
   const getMergedCellInfo = (rowIndex: number, colIndex: number) => {
     for (const merge of excelFormat.mergedCells) {
+      // Verificar si esta celda está dentro del rango del merge
       if (
         rowIndex >= merge.s.r &&
         rowIndex <= merge.e.r &&
@@ -146,10 +241,35 @@ export function ColumnConfigurator({
         const isStartCell = rowIndex === merge.s.r && colIndex === merge.s.c
         const rowSpan = merge.e.r - merge.s.r + 1
         const colSpan = merge.e.c - merge.s.c + 1
-        return { isMerged: true, isStartCell, rowSpan, colSpan }
+        return { 
+          isMerged: true, 
+          isStartCell, 
+          rowSpan, 
+          colSpan,
+          mergeRange: merge // Guardar el rango completo para referencia
+        }
       }
     }
-    return { isMerged: false, isStartCell: false, rowSpan: 1, colSpan: 1 }
+    return { isMerged: false, isStartCell: false, rowSpan: 1, colSpan: 1, mergeRange: null }
+  }
+  
+  // Función auxiliar para verificar si una celda está ocupada por un merge vertical de una fila anterior
+  // Esto es necesario porque cuando hay rowspan, las filas siguientes no deben renderizar esa celda
+  const isCellOccupiedByVerticalMerge = (rowIndex: number, colIndex: number): boolean => {
+    for (const merge of excelFormat.mergedCells) {
+      // Si esta celda está dentro de un merge que comenzó en una fila anterior
+      // (es decir, rowIndex > merge.s.r pero está dentro del rango del merge)
+      if (
+        rowIndex > merge.s.r && // La fila actual es posterior a la fila inicial del merge
+        rowIndex <= merge.e.r && // Pero está dentro del rango del merge (incluye la fila final)
+        colIndex >= merge.s.c && // Y está dentro del rango de columnas del merge
+        colIndex <= merge.e.c
+      ) {
+        // Esta celda está ocupada por un merge vertical que comenzó arriba
+        return true
+      }
+    }
+    return false
   }
 
   // Función para obtener el ancho de columna
@@ -199,18 +319,50 @@ export function ColumnConfigurator({
 
     // Tema (referencia a tema de Excel)
     if (color.theme !== undefined) {
-      // Mapeo básico de temas comunes de Excel
+      // Mapeo más completo de temas comunes de Excel (basado en temas estándar de Office)
       const themeColors: Record<number, string> = {
         0: "#000000", // Texto 1
         1: "#FFFFFF", // Fondo 1
-        2: "#FF0000", // Acento 1
-        3: "#00FF00", // Acento 2
-        4: "#0000FF", // Acento 3
-        5: "#FFFF00", // Acento 4
-        6: "#FF00FF", // Acento 5
-        7: "#00FFFF", // Acento 6
+        2: "#E7E6E6", // Texto 2
+        3: "#44546A", // Fondo 2
+        4: "#5B9BD5", // Acento 1 (Azul)
+        5: "#70AD47", // Acento 2 (Verde)
+        6: "#A5A5A5", // Acento 3 (Gris)
+        7: "#FFC000", // Acento 4 (Amarillo)
+        8: "#4472C4", // Acento 5 (Azul oscuro)
+        9: "#70AD47", // Acento 6 (Verde)
+        10: "#FF0000", // Rojo (común en Excel)
+        11: "#00FF00", // Verde brillante
+        12: "#0000FF", // Azul brillante
+        13: "#FFFF00", // Amarillo brillante
+        14: "#FF00FF", // Magenta
+        15: "#00FFFF", // Cyan
       }
       return themeColors[color.theme] || undefined
+    }
+    
+    // También verificar si hay un índice de color directo (algunos formatos de Excel)
+    if (color.index !== undefined) {
+      // Mapeo de índices de color comunes de Excel
+      const indexedColors: Record<number, string> = {
+        0: "#000000", // Negro
+        1: "#FFFFFF", // Blanco
+        2: "#FF0000", // Rojo
+        3: "#00FF00", // Verde
+        4: "#0000FF", // Azul
+        5: "#FFFF00", // Amarillo
+        6: "#FF00FF", // Magenta
+        7: "#00FFFF", // Cyan
+        8: "#800000", // Marrón oscuro
+        9: "#008000", // Verde oscuro
+        10: "#000080", // Azul oscuro
+        11: "#808000", // Oliva
+        12: "#800080", // Púrpura
+        13: "#008080", // Teal
+        14: "#C0C0C0", // Plata
+        15: "#808080", // Gris
+      }
+      return indexedColors[color.index] || undefined
     }
 
     return undefined
@@ -219,10 +371,40 @@ export function ColumnConfigurator({
   // Función para obtener el estilo de una celda
   const getCellStyle = (rowIndex: number, colIndex: number): React.CSSProperties => {
     const cellAddress = getCellAddress(rowIndex, colIndex)
+
+    // Si usamos ExcelJS, los estilos ya vienen procesados y son más precisos
+    if (exceljsFormat) {
+      const exceljsStyle = exceljsFormat.cellStyles[cellAddress]
+      if (exceljsStyle) {
+        const borderStyle: React.CSSProperties = {}
+        if (exceljsStyle.borders) {
+          Object.entries(exceljsStyle.borders).forEach(([side, border]: [string, any]) => {
+            borderStyle[`border${side.charAt(0).toUpperCase() + side.slice(1)}` as keyof React.CSSProperties] = 
+              `${border.width} solid ${border.color}`
+          })
+        }
+
+        return {
+          backgroundColor: exceljsStyle.backgroundColor,
+          color: exceljsStyle.textColor,
+          fontWeight: exceljsStyle.fontWeight,
+          fontStyle: exceljsStyle.fontStyle,
+          fontSize: exceljsStyle.fontSize,
+          fontFamily: exceljsStyle.fontFamily,
+          textAlign: exceljsStyle.textAlign as any,
+          verticalAlign: exceljsStyle.verticalAlign as any,
+          textDecoration: exceljsStyle.textDecoration,
+          ...borderStyle,
+        }
+      }
+    }
+
+    // Fallback a XLSX - procesar estilos de XLSX
     const style = excelFormat.cellStyles[cellAddress] || {}
 
-    // Extraer color de fondo
+    // Extraer color de fondo - XLSX puede tener fill en diferentes lugares
     let backgroundColor: string | undefined
+    // Primero intentar en style.fill (estructura estándar de XLSX)
     if (style.fill) {
       if (style.fill.fgColor) {
         backgroundColor = excelColorToCSS(style.fill.fgColor)
@@ -230,9 +412,70 @@ export function ColumnConfigurator({
         backgroundColor = excelColorToCSS(style.fill.bgColor)
       }
     }
+    // También intentar en style.f (formato alternativo)
+    if (!backgroundColor && (style as any).f && (style as any).f.fill) {
+      const fill = (style as any).f.fill
+      if (fill.fgColor) {
+        backgroundColor = excelColorToCSS(fill.fgColor)
+      } else if (fill.bgColor) {
+        backgroundColor = excelColorToCSS(fill.bgColor)
+      }
+    }
+    // También verificar directamente en la celda del sheet si no está en cellStyles
+    // Esto es importante porque XLSX puede no extraer todos los estilos correctamente
+    if (!backgroundColor && sheet) {
+      const cell = sheet[cellAddress]
+      if (cell && cell.s) {
+        const cellStyle = cell.s
+        // Intentar fill en diferentes estructuras
+        if (cellStyle.fill) {
+          if (cellStyle.fill.fgColor) {
+            backgroundColor = excelColorToCSS(cellStyle.fill.fgColor)
+          } else if (cellStyle.fill.bgColor) {
+            backgroundColor = excelColorToCSS(cellStyle.fill.bgColor)
+          }
+        }
+        // También intentar en cellStyle.f
+        if (!backgroundColor && (cellStyle as any).f && (cellStyle as any).f.fill) {
+          const fill = (cellStyle as any).f.fill
+          if (fill.fgColor) {
+            backgroundColor = excelColorToCSS(fill.fgColor)
+          } else if (fill.bgColor) {
+            backgroundColor = excelColorToCSS(fill.bgColor)
+          }
+        }
+      }
+    }
+
+    // También intentar buscar colores en patrones de relleno
+    if (!backgroundColor && sheet) {
+      const cell = sheet[cellAddress]
+      if (cell && cell.s && cell.s.pattern) {
+        const pattern = cell.s.pattern
+        if (pattern.fgColor) {
+          backgroundColor = excelColorToCSS(pattern.fgColor)
+        } else if (pattern.bgColor) {
+          backgroundColor = excelColorToCSS(pattern.bgColor)
+        }
+      }
+    }
 
     // Extraer color de texto
-    const textColor = style.font?.color ? excelColorToCSS(style.font.color) : undefined
+    let textColor: string | undefined
+    if (style.font?.color) {
+      textColor = excelColorToCSS(style.font.color)
+    }
+    // También intentar en style.f
+    if (!textColor && (style as any).f && (style as any).f.font && (style as any).f.font.color) {
+      textColor = excelColorToCSS((style as any).f.font.color)
+    }
+    // También verificar directamente en la celda del sheet
+    if (!textColor && sheet) {
+      const cell = sheet[cellAddress]
+      if (cell && cell.s && cell.s.font && cell.s.font.color) {
+        textColor = excelColorToCSS(cell.s.font.color)
+      }
+    }
 
     // Extraer estilos de borde
     const borderStyle: React.CSSProperties = {}
@@ -651,286 +894,143 @@ export function ColumnConfigurator({
             </div>
           </div>
           
-          <div className="overflow-auto max-h-[600px]">
-            <table className="border-collapse" style={{ tableLayout: 'fixed', width: '100%' }}>
-              <colgroup>
-                <col style={{ width: '60px' }} /> {/* Columna de números de fila */}
-                {Array.from({ length: maxColumns }).map((_, colIndex) => (
-                  <col key={colIndex} style={{ width: `${getColumnWidth(colIndex)}px` }} />
-                ))}
-              </colgroup>
-              
-              <thead className="sticky top-[41px] z-10 bg-muted/80 backdrop-blur-sm">
-                <tr>
-                  <th className="bg-muted/90 p-2 text-xs font-bold border border-gray-300 sticky left-0 z-20">
-                    {/* Celda vacía para números de fila */}
-                  </th>
-                  {Array.from({ length: maxColumns }).map((_, colIndex) => {
-                    const isColSelected = isColumnSelected(colIndex)
-                    const label = getColumnLabel(colIndex)
-                    
-                    return (
-                      <th
-                        key={colIndex}
-                        className={cn(
-                          "p-2 text-xs font-semibold border border-gray-300 text-center",
-                          isColSelected
-                            ? "bg-success/30 border-success"
-                            : "bg-muted/50"
-                        )}
-                      >
-                        {colIndexToExcel(colIndex)}
-                        {label && (
-                          <div className="text-[10px] mt-1 text-success font-bold">
-                            {label}
-                          </div>
-                        )}
-                      </th>
-                    )
-                  })}
-                </tr>
-              </thead>
-              
-              <tbody>
-              {rawData.map((row, rowIndex) => {
-                const isHeaderRow = rowIndex === headerRowIndex
-                const rowHeight = getRowHeight(rowIndex)
-                
-                // Crear un mapa de celdas procesadas para esta fila
-                const processedCells = new Map<number, boolean>()
-                
-                return (
-                  <tr 
-                    key={rowIndex} 
-                    style={{ height: `${rowHeight}px` }}
-                  >
-                    {/* Número de fila (sticky) */}
-                    <td 
-                      className={cn(
-                        "bg-muted/50 p-2 text-xs font-medium border border-gray-300 sticky left-0 z-10 text-center",
-                        isHeaderRow && "bg-primary/20 font-bold"
-                      )}
-                      style={{ 
-                        height: `${rowHeight}px`,
-                        verticalAlign: 'middle'
-                      }}
-                    >
-                      {rowIndex + 1}
-                    </td>
-                    
-                    {/* Celdas de la fila */}
-                    {Array.from({ length: maxColumns }).map((_, colIndex) => {
-                      // Verificar si esta celda está en un merged range
-                      const mergedInfo = getMergedCellInfo(rowIndex, colIndex)
-                      
-                      // Si ya procesamos esta celda (es parte de un merge anterior), saltarla
-                      if (processedCells.get(colIndex)) {
-                        return null
-                      }
-                      
-                      // Si está en un merge pero no es la celda inicial, no renderizar
-                      const isMergedHidden = mergedInfo.isMerged && !mergedInfo.isStartCell
-                      if (isMergedHidden) {
-                        return null
-                      }
-                      
-                      // Obtener el valor de la celda
-                      const cellValue = row[colIndex]
-                      const displayValue = currentStep === "fechaCell" 
-                        ? formatExcelDate(cellValue)
-                        : String(cellValue || "").trim()
-                      
-                      // Si esta celda es parte de un merge, marcar las siguientes celdas como procesadas
-                      if (mergedInfo.isMerged && mergedInfo.isStartCell) {
-                        for (let c = colIndex + 1; c <= colIndex + mergedInfo.colSpan - 1; c++) {
-                          processedCells.set(c, true)
-                        }
-                      }
-                      
-                      // Determinar si esta celda/columna está seleccionada
-                      let isSelected = false
-                      let label = ""
-                      let isHighlighted = false
-                      
-                      if (currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell") {
-                        // Para pasos de celdas específicas
-                        if (currentStep === "totalItems" && config.totalItemsCell?.row === rowIndex && config.totalItemsCell?.col === colIndex) {
-                          isSelected = true
-                          label = "Total Items"
-                        } else if (currentStep === "cumpleCell" && config.cumpleCell?.row === rowIndex && config.cumpleCell?.col === colIndex) {
-                          isSelected = true
-                          label = "Cumple"
-                        } else if (currentStep === "cumpleParcialCell" && config.cumpleParcialCell?.row === rowIndex && config.cumpleParcialCell?.col === colIndex) {
-                          isSelected = true
-                          label = "Cumple Parcial"
-                        } else if (currentStep === "noCumpleCell" && config.noCumpleCell?.row === rowIndex && config.noCumpleCell?.col === colIndex) {
-                          isSelected = true
-                          label = "No Cumple"
-                        } else if (currentStep === "noAplicaCell" && config.noAplicaCell?.row === rowIndex && config.noAplicaCell?.col === colIndex) {
-                          isSelected = true
-                          label = "No Aplica"
-                        } else if (currentStep === "operacionCell" && config.operacionCell?.row === rowIndex && config.operacionCell?.col === colIndex) {
-                          isSelected = true
-                          label = "Operación"
-                        } else if (currentStep === "fechaCell" && config.fechaCell?.row === rowIndex && config.fechaCell?.col === colIndex) {
-                          isSelected = true
-                          label = "Fecha"
-                        } else if (currentStep === "cumplePctCell" && config.cumplePctCell?.row === rowIndex && config.cumplePctCell?.col === colIndex) {
-                          isSelected = true
-                          label = "% Cumple"
-                        } else if (currentStep === "cumpleParcialPctCell" && config.cumpleParcialPctCell?.row === rowIndex && config.cumpleParcialPctCell?.col === colIndex) {
-                          isSelected = true
-                          label = "% Cumple Parcial"
-                        } else if (currentStep === "noCumplePctCell" && config.noCumplePctCell?.row === rowIndex && config.noCumplePctCell?.col === colIndex) {
-                          isSelected = true
-                          label = "% No Cumple"
-                        } else if (currentStep === "noAplicaPctCell" && config.noAplicaPctCell?.row === rowIndex && config.noAplicaPctCell?.col === colIndex) {
-                          isSelected = true
-                          label = "% No Aplica"
-                        }
-                        
-                        // Resaltar celdas previamente seleccionadas
-                        if (config.totalItemsCell?.row === rowIndex && config.totalItemsCell?.col === colIndex && !isSelected) {
-                          isHighlighted = true
-                          label = "Total Items"
-                        } else if (config.cumpleCell?.row === rowIndex && config.cumpleCell?.col === colIndex && !isSelected) {
-                          isHighlighted = true
-                          label = "Cumple"
-                        } else if (config.cumpleParcialCell?.row === rowIndex && config.cumpleParcialCell?.col === colIndex && !isSelected) {
-                          isHighlighted = true
-                          label = "Cumple Parcial"
-                        } else if (config.noCumpleCell?.row === rowIndex && config.noCumpleCell?.col === colIndex && !isSelected) {
-                          isHighlighted = true
-                          label = "No Cumple"
-                        } else if (config.noAplicaCell?.row === rowIndex && config.noAplicaCell?.col === colIndex && !isSelected) {
-                          isHighlighted = true
-                          label = "No Aplica"
-                        } else if (config.operacionCell?.row === rowIndex && config.operacionCell?.col === colIndex && !isSelected) {
-                          isHighlighted = true
-                          label = "Operación"
-                        } else if (config.fechaCell?.row === rowIndex && config.fechaCell?.col === colIndex && !isSelected) {
-                          isHighlighted = true
-                          label = "Fecha"
-                        } else if (config.cumplePctCell?.row === rowIndex && config.cumplePctCell?.col === colIndex && !isSelected) {
-                          isHighlighted = true
-                          label = "% Cumple"
-                        } else if (config.cumpleParcialPctCell?.row === rowIndex && config.cumpleParcialPctCell?.col === colIndex && !isSelected) {
-                          isHighlighted = true
-                          label = "% Cumple Parcial"
-                        } else if (config.noCumplePctCell?.row === rowIndex && config.noCumplePctCell?.col === colIndex && !isSelected) {
-                          isHighlighted = true
-                          label = "% No Cumple"
-                        } else if (config.noAplicaPctCell?.row === rowIndex && config.noAplicaPctCell?.col === colIndex && !isSelected) {
-                          isHighlighted = true
-                          label = "% No Aplica"
-                        }
-                      } else {
-                        // Para pasos de columnas
-                        if (isColumnSelected(colIndex)) {
-                          isSelected = isHeaderRow && isColumnSelected(colIndex)
-                          label = getColumnLabel(colIndex) || ""
-                        }
-                        
-                        // Resaltar toda la columna si está seleccionada
-                        if (isColumnSelected(colIndex)) {
-                          isHighlighted = true
-                        }
-                      }
-                      
-                      // Determinar si es clickeable según el paso actual
-                      const isClickable = 
-                        (currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell")
-                          ? true // Cualquier celda es clickeable en pasos de celdas
-                          : (currentStep === "cumplimiento")
-                            ? true // Cualquier celda es clickeable en paso de cumplimiento
-                            : (currentStep !== "complete" && isHeaderRow) // Solo encabezados en pasos de columnas
-                      
-                      // Obtener estilos de Excel para esta celda
-                      const excelCellStyle = getCellStyle(rowIndex, colIndex)
-                      
-                      // Calcular colspan y rowspan si está combinada
-                      const colspan = mergedInfo.isMerged && mergedInfo.isStartCell ? mergedInfo.colSpan : 1
-                      const rowspan = mergedInfo.isMerged && mergedInfo.isStartCell ? mergedInfo.rowSpan : 1
-
-                      return (
-                        <td
-                          key={colIndex}
-                          colSpan={colspan}
-                          rowSpan={rowspan}
-                          className={cn(
-                            "border border-gray-300 p-2 text-sm transition-all",
-                            // Solo aplicar clases de fondo si no hay color de Excel
-                            !excelCellStyle.backgroundColor && (
-                              isSelected
-                                ? "bg-success/30 border-success border-2"
-                                : isHighlighted
-                                  ? "bg-success/10 border-success/50"
-                                  : isHeaderRow
-                                    ? "bg-primary/5 font-semibold"
-                                    : "bg-background"
-                            ),
-                            isClickable && "cursor-pointer hover:opacity-80",
-                            !isClickable && "cursor-default"
-                          )}
-                          style={{ 
-                            // Aplicar estilos de Excel (colores, fuentes, bordes, etc.)
-                            ...excelCellStyle,
-                            verticalAlign: excelCellStyle.verticalAlign || 'top',
-                            // Mantener colores de selección/resaltado si están activos (con overlay)
-                            ...(isSelected && excelCellStyle.backgroundColor && { 
-                              backgroundColor: excelCellStyle.backgroundColor,
-                              boxShadow: 'inset 0 0 0 2px rgb(34 197 94 / 0.5)'
-                            }),
-                            ...(isHighlighted && !isSelected && excelCellStyle.backgroundColor && { 
-                              backgroundColor: excelCellStyle.backgroundColor,
-                              boxShadow: 'inset 0 0 0 1px rgb(34 197 94 / 0.3)'
-                            }),
-                          }}
-                          onClick={() => {
-                            if (isClickable) {
-                              if (currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell") {
-                                handleCellClick(rowIndex, colIndex)
-                              } else if (currentStep === "cumplimiento") {
-                                handleColumnClick(colIndex)
-                              } else if (isHeaderRow) {
-                                handleColumnClick(colIndex)
-                              }
-                            }
-                          }}
-                          title={displayValue || `Fila ${rowIndex + 1}, Col ${colIndex + 1}`}
-                        >
-                          <div 
-                            className="truncate" 
-                            title={displayValue}
-                            style={{
-                              // Aplicar estilos de texto de Excel
-                              color: excelCellStyle.color,
-                              fontWeight: excelCellStyle.fontWeight,
-                              fontStyle: excelCellStyle.fontStyle,
-                              fontSize: excelCellStyle.fontSize,
-                              fontFamily: excelCellStyle.fontFamily,
-                              textAlign: excelCellStyle.textAlign as any,
-                              textDecoration: excelCellStyle.textDecoration,
-                            }}
-                          >
-                            {displayValue || ""}
-                          </div>
-                          {label && (
-                            <Badge 
-                              variant={isSelected ? "default" : "secondary"} 
-                              className="mt-1 text-[10px] px-1 py-0"
-                            >
-                              {label}
-                            </Badge>
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                )
-              })}
-              </tbody>
-            </table>
+          {/* Usar Handsontable para renderizar Excel con estilos completos */}
+          <div className="overflow-auto max-h-[600px] bg-white">
+            <ExcelHandsontableViewer
+              rawData={rawData}
+              sheet={sheet}
+              file={file}
+              maxRows={rawData.length}
+              readOnly={true}
+              onCellClick={(row, col) => {
+                if (currentStep === "totalItems" || currentStep === "cumpleCell" || currentStep === "cumpleParcialCell" || currentStep === "noCumpleCell" || currentStep === "noAplicaCell" || currentStep === "operacionCell" || currentStep === "fechaCell" || currentStep === "cumplePctCell" || currentStep === "cumpleParcialPctCell" || currentStep === "noCumplePctCell" || currentStep === "noAplicaPctCell") {
+                  handleCellClick(row, col)
+                } else if (currentStep === "cumplimiento") {
+                  handleColumnClick(col)
+                } else if (row === headerRowIndex) {
+                  handleColumnClick(col)
+                }
+              }}
+              selectedCells={(() => {
+                const selected: Array<{ row: number; col: number }> = []
+                if (currentStep === "totalItems" && config.totalItemsCell) {
+                  selected.push(config.totalItemsCell)
+                } else if (currentStep === "cumpleCell" && config.cumpleCell) {
+                  selected.push(config.cumpleCell)
+                } else if (currentStep === "cumpleParcialCell" && config.cumpleParcialCell) {
+                  selected.push(config.cumpleParcialCell)
+                } else if (currentStep === "noCumpleCell" && config.noCumpleCell) {
+                  selected.push(config.noCumpleCell)
+                } else if (currentStep === "noAplicaCell" && config.noAplicaCell) {
+                  selected.push(config.noAplicaCell)
+                } else if (currentStep === "operacionCell" && config.operacionCell) {
+                  selected.push(config.operacionCell)
+                } else if (currentStep === "fechaCell" && config.fechaCell) {
+                  selected.push(config.fechaCell)
+                } else if (currentStep === "cumplePctCell" && config.cumplePctCell) {
+                  selected.push(config.cumplePctCell)
+                } else if (currentStep === "cumpleParcialPctCell" && config.cumpleParcialPctCell) {
+                  selected.push(config.cumpleParcialPctCell)
+                } else if (currentStep === "noCumplePctCell" && config.noCumplePctCell) {
+                  selected.push(config.noCumplePctCell)
+                } else if (currentStep === "noAplicaPctCell" && config.noAplicaPctCell) {
+                  selected.push(config.noAplicaPctCell)
+                } else if (currentStep !== "totalItems" && currentStep !== "cumpleCell" && currentStep !== "cumpleParcialCell" && currentStep !== "noCumpleCell" && currentStep !== "noAplicaCell" && currentStep !== "operacionCell" && currentStep !== "fechaCell" && currentStep !== "cumplePctCell" && currentStep !== "cumpleParcialPctCell" && currentStep !== "noCumplePctCell" && currentStep !== "noAplicaPctCell") {
+                  // Para pasos de columnas, seleccionar toda la columna según el paso actual
+                  let colIndex: number | null = null
+                  if (currentStep === "pregunta" && config.pregunta !== null && config.pregunta !== undefined) {
+                    colIndex = config.pregunta
+                  } else if (currentStep === "cumple" && config.cumple !== null && config.cumple !== undefined) {
+                    colIndex = config.cumple
+                  } else if (currentStep === "cumpleParcial" && config.cumpleParcial !== null && config.cumpleParcial !== undefined) {
+                    colIndex = config.cumpleParcial
+                  } else if (currentStep === "noCumple" && config.noCumple !== null && config.noCumple !== undefined) {
+                    colIndex = config.noCumple
+                  } else if (currentStep === "noAplica" && config.noAplica !== null && config.noAplica !== undefined) {
+                    colIndex = config.noAplica
+                  } else if (currentStep === "observacion" && config.observacion !== null && config.observacion !== undefined) {
+                    colIndex = config.observacion
+                  } else if (currentStep === "cumplimiento" && config.cumplimientoCol !== null && config.cumplimientoCol !== undefined) {
+                    colIndex = config.cumplimientoCol
+                  }
+                  if (colIndex !== null && colIndex >= 0) {
+                    rawData.forEach((_, rowIdx) => {
+                      selected.push({ row: rowIdx, col: colIndex! })
+                    })
+                  }
+                }
+                return selected
+              })()}
+              highlightedCells={(() => {
+                const highlighted: Array<{ row: number; col: number; label?: string }> = []
+                // Resaltar celdas previamente configuradas
+                if (config.totalItemsCell && currentStep !== "totalItems") {
+                  highlighted.push({ ...config.totalItemsCell, label: "Total Items" })
+                }
+                if (config.cumpleCell && currentStep !== "cumpleCell") {
+                  highlighted.push({ ...config.cumpleCell, label: "Cumple" })
+                }
+                if (config.cumpleParcialCell && currentStep !== "cumpleParcialCell") {
+                  highlighted.push({ ...config.cumpleParcialCell, label: "Cumple Parcial" })
+                }
+                if (config.noCumpleCell && currentStep !== "noCumpleCell") {
+                  highlighted.push({ ...config.noCumpleCell, label: "No Cumple" })
+                }
+                if (config.noAplicaCell && currentStep !== "noAplicaCell") {
+                  highlighted.push({ ...config.noAplicaCell, label: "No Aplica" })
+                }
+                if (config.operacionCell && currentStep !== "operacionCell") {
+                  highlighted.push({ ...config.operacionCell, label: "Operación" })
+                }
+                if (config.fechaCell && currentStep !== "fechaCell") {
+                  highlighted.push({ ...config.fechaCell, label: "Fecha" })
+                }
+                if (config.cumplePctCell && currentStep !== "cumplePctCell") {
+                  highlighted.push({ ...config.cumplePctCell, label: "% Cumple" })
+                }
+                if (config.cumpleParcialPctCell && currentStep !== "cumpleParcialPctCell") {
+                  highlighted.push({ ...config.cumpleParcialPctCell, label: "% Cumple Parcial" })
+                }
+                if (config.noCumplePctCell && currentStep !== "noCumplePctCell") {
+                  highlighted.push({ ...config.noCumplePctCell, label: "% No Cumple" })
+                }
+                if (config.noAplicaPctCell && currentStep !== "noAplicaPctCell") {
+                  highlighted.push({ ...config.noAplicaPctCell, label: "% No Aplica" })
+                }
+                // Resaltar columnas previamente configuradas
+                if (currentStep !== "pregunta" && config.pregunta !== null && config.pregunta !== undefined) {
+                  rawData.forEach((_, rowIdx) => {
+                    highlighted.push({ row: rowIdx, col: config.pregunta!, label: "Pregunta" })
+                  })
+                }
+                if (currentStep !== "cumple" && config.cumple !== null && config.cumple !== undefined) {
+                  rawData.forEach((_, rowIdx) => {
+                    highlighted.push({ row: rowIdx, col: config.cumple!, label: "Cumple" })
+                  })
+                }
+                if (currentStep !== "cumpleParcial" && config.cumpleParcial !== null && config.cumpleParcial !== undefined) {
+                  rawData.forEach((_, rowIdx) => {
+                    highlighted.push({ row: rowIdx, col: config.cumpleParcial!, label: "Cumple Parcial" })
+                  })
+                }
+                if (currentStep !== "noCumple" && config.noCumple !== null && config.noCumple !== undefined) {
+                  rawData.forEach((_, rowIdx) => {
+                    highlighted.push({ row: rowIdx, col: config.noCumple!, label: "No Cumple" })
+                  })
+                }
+                if (currentStep !== "noAplica" && config.noAplica !== null && config.noAplica !== undefined) {
+                  rawData.forEach((_, rowIdx) => {
+                    highlighted.push({ row: rowIdx, col: config.noAplica!, label: "No Aplica" })
+                  })
+                }
+                if (currentStep !== "observacion" && config.observacion !== null && config.observacion !== undefined) {
+                  rawData.forEach((_, rowIdx) => {
+                    highlighted.push({ row: rowIdx, col: config.observacion!, label: "Observación" })
+                  })
+                }
+                return highlighted
+              })()}
+            />
           </div>
         </div>
 

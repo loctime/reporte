@@ -8,8 +8,8 @@ import { Upload, FileSpreadsheet, X, CheckCircle2, AlertCircle, Loader2, Setting
 import { parseExcelFile } from "@/lib/excel-parser"
 import type { AuditFile } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { ExcelConfiguratorNew } from "@/components/excel-configurator-new"
-import { loadExcelConfig, clearExcelConfig, type ExcelConfig } from "@/lib/excel-config"
+import { ColumnConfigurator } from "@/components/column-configurator"
+import { loadColumnConfig, clearColumnConfig, type ColumnConfig } from "@/lib/column-config"
 import * as XLSX from "xlsx"
 import {
   AlertDialog,
@@ -40,7 +40,7 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
   const [configFile, setConfigFile] = useState<File | null>(null)
   const [rawData, setRawData] = useState<any[][]>([])
   const [headerRowIndex, setHeaderRowIndex] = useState<number>(-1)
-  const [savedConfig, setSavedConfig] = useState<ExcelConfig | null>(null)
+  const [savedConfig, setSavedConfig] = useState<ColumnConfig | null>(null)
   const [sheet, setSheet] = useState<XLSX.WorkSheet | undefined>(undefined)
   const [errorDialog, setErrorDialog] = useState<{
     open: boolean
@@ -51,14 +51,14 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
 
   useEffect(() => {
     // Cargar configuración guardada al montar
-    const config = loadExcelConfig()
+    const config = loadColumnConfig()
     setSavedConfig(config)
   }, [])
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       // Verificar si hay configuración guardada
-      const config = loadExcelConfig()
+      const config = loadColumnConfig()
       setSavedConfig(config)
 
       // Si no hay configuración, leer el primer archivo para mostrar el configurador
@@ -178,7 +178,7 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
     }
   }
 
-  const handleConfigComplete = async (config: ExcelConfig) => {
+  const handleConfigComplete = async (config: ColumnConfig) => {
     setSavedConfig(config)
     setShowConfigurator(false)
     // Procesar el archivo que estaba esperando configuración
@@ -204,7 +204,7 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
   }
 
   const handleReconfigure = () => {
-    clearExcelConfig()
+    clearColumnConfig()
     setSavedConfig(null)
     if (configFile) {
       setShowConfigurator(true)
@@ -238,9 +238,11 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
                 <div>
                   <p className="font-semibold">Configuración de Excel Activa</p>
                   <p className="text-sm text-muted-foreground">
-                    {savedConfig.columnMapping.pregunta >= 0 && `Pregunta: Col ${savedConfig.columnMapping.pregunta + 1} | `}
-                    {savedConfig.columnMapping.cumple >= 0 && `Cumple: Col ${savedConfig.columnMapping.cumple + 1} | `}
-                    {savedConfig.customFields.length > 0 && `${savedConfig.customFields.length} campos personalizados`}
+                    {savedConfig.pregunta >= 0 && `Pregunta: Col ${savedConfig.pregunta + 1} | `}
+                    {savedConfig.cumple >= 0 && `Cumple: Col ${savedConfig.cumple + 1} | `}
+                    {savedConfig.cumpleParcial >= 0 && `Cumple Parcial: Col ${savedConfig.cumpleParcial + 1} | `}
+                    {savedConfig.noCumple >= 0 && `No Cumple: Col ${savedConfig.noCumple + 1} | `}
+                    {savedConfig.noAplica >= 0 && `No Aplica: Col ${savedConfig.noAplica + 1}`}
                   </p>
                 </div>
               </div>
@@ -254,12 +256,13 @@ export function FileUpload({ onFilesProcessed }: FileUploadProps) {
       )}
 
       {showConfigurator && rawData.length > 0 && (
-        <ExcelConfiguratorNew
+        <ColumnConfigurator
           rawData={rawData}
+          headerRowIndex={headerRowIndex}
           sheet={sheet}
           file={configFile || undefined}
           onConfigComplete={handleConfigComplete}
-          onCancel={handleConfigSkip}
+          onSkip={handleConfigSkip}
         />
       )}
 

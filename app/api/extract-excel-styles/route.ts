@@ -118,6 +118,34 @@ export async function POST(request: NextRequest) {
       return result
     }
 
+    // Crear un Set de direcciones de celdas que son la celda inicial de un merge
+    const mergeStartCells = new Set<string>()
+    mergedCells.forEach((merge) => {
+      const startAddress = `${getColumnLetter(merge.s.c + 1)}${merge.s.r + 1}`
+      mergeStartCells.add(startAddress)
+    })
+
+    // Función auxiliar para verificar si una celda está en un merge pero NO es la inicial
+    const isMergedButNotStart = (rowNumber: number, colNumber: number): boolean => {
+      for (const merge of mergedCells) {
+        const rowIndex = rowNumber - 1 // Convertir a índice 0-based
+        const colIndex = colNumber - 1 // Convertir a índice 0-based
+        if (
+          rowIndex >= merge.s.r &&
+          rowIndex <= merge.e.r &&
+          colIndex >= merge.s.c &&
+          colIndex <= merge.e.c
+        ) {
+          // Está en el merge
+          const isStart = rowIndex === merge.s.r && colIndex === merge.s.c
+          if (!isStart) {
+            return true // Está en el merge pero NO es la inicial
+          }
+        }
+      }
+      return false
+    }
+
     // Extraer estilos de cada celda
     worksheet.eachRow((row, rowNumber) => {
       row.eachCell((cell, colNumber) => {
@@ -173,65 +201,70 @@ export async function POST(request: NextRequest) {
           })
         }
 
-        // Valor de la celda - usar cell.result (valor calculado) si está disponible, sino cell.value
-        // cell.result contiene el valor calculado de fórmulas, mientras que cell.value puede ser la fórmula misma
-        let cellValue: any = cell.result !== null && cell.result !== undefined ? cell.result : cell.value
-        
-        if (cellValue !== null && cellValue !== undefined) {
-          // Si es un objeto con richText (texto enriquecido)
-          if (typeof cellValue === "object" && "richText" in cellValue) {
-            cellValue = cellValue.richText?.map((rt: any) => rt.text || "").join("") || ""
-          }
-          // Si es una fecha
-          else if (cellValue instanceof Date) {
-            // Formatear fecha según el formato de la celda si está disponible
-            const dateValue = cellValue
-            // Intentar usar el formato de Excel si está disponible
-            if (cell.numFmt && cell.numFmt.includes("d") && cell.numFmt.includes("m")) {
-              // Formato personalizado de fecha
-              const day = String(dateValue.getDate()).padStart(2, "0")
-              const month = String(dateValue.getMonth() + 1).padStart(2, "0")
-              const year = dateValue.getFullYear()
-              cellValue = `${day}/${month}/${year}`
-            } else {
-              cellValue = dateValue.toISOString().split("T")[0] // Formato YYYY-MM-DD por defecto
+        // Valor de la celda - SOLO extraer si NO está en un merge o ES la celda inicial del merge
+        // Si está en un merge pero NO es la inicial, NO guardar el valor (para evitar duplicados)
+        if (!isMergedButNotStart(rowNumber, colNumber)) {
+          // Valor de la celda - usar cell.result (valor calculado) si está disponible, sino cell.value
+          // cell.result contiene el valor calculado de fórmulas, mientras que cell.value puede ser la fórmula misma
+          let cellValue: any = cell.result !== null && cell.result !== undefined ? cell.result : cell.value
+          
+          if (cellValue !== null && cellValue !== undefined) {
+            // Si es un objeto con richText (texto enriquecido)
+            if (typeof cellValue === "object" && "richText" in cellValue) {
+              cellValue = cellValue.richText?.map((rt: any) => rt.text || "").join("") || ""
             }
-          }
-          // Si es un objeto genérico, intentar extraer propiedades útiles
-          else if (typeof cellValue === "object" && !Array.isArray(cellValue)) {
-            // Intentar obtener el valor numérico si existe
-            if ("result" in cellValue && cellValue.result !== null && cellValue.result !== undefined) {
-              cellValue = cellValue.result
-            } else if ("text" in cellValue) {
-              cellValue = cellValue.text
-            } else if ("value" in cellValue) {
-              cellValue = cellValue.value
-            } else {
-              // Si no hay propiedades útiles, intentar convertir a string de forma más inteligente
-              try {
-                cellValue = JSON.stringify(cellValue)
-              } catch {
-                cellValue = String(cellValue)
+            // Si es una fecha
+            else if (cellValue instanceof Date) {
+              // Formatear fecha según el formato de la celda si está disponible
+              const dateValue = cellValue
+              // Intentar usar el formato de Excel si está disponible
+              if (cell.numFmt && cell.numFmt.includes("d") && cell.numFmt.includes("m")) {
+                // Formato personalizado de fecha
+                const day = String(dateValue.getDate()).padStart(2, "0")
+                const month = String(dateValue.getMonth() + 1).padStart(2, "0")
+                const year = dateValue.getFullYear()
+                cellValue = `${day}/${month}/${year}`
+              } else {
+                cellValue = dateValue.toISOString().split("T")[0] // Formato YYYY-MM-DD por defecto
               }
             }
-          }
-          // Si es un array, unir los elementos
-          else if (Array.isArray(cellValue)) {
-            cellValue = cellValue.map(v => {
-              if (typeof v === "object" && v !== null && "text" in v) {
-                return v.text
+            // Si es un objeto genérico, intentar extraer propiedades útiles
+            else if (typeof cellValue === "object" && !Array.isArray(cellValue)) {
+              // Intentar obtener el valor numérico si existe
+              if ("result" in cellValue && cellValue.result !== null && cellValue.result !== undefined) {
+                cellValue = cellValue.result
+              } else if ("text" in cellValue) {
+                cellValue = cellValue.text
+              } else if ("value" in cellValue) {
+                cellValue = cellValue.value
+              } else {
+                // Si no hay propiedades útiles, intentar convertir a string de forma más inteligente
+                try {
+                  cellValue = JSON.stringify(cellValue)
+                } catch {
+                  cellValue = String(cellValue)
+                }
               }
-              return String(v)
-            }).join("")
+            }
+            // Si es un array, unir los elementos
+            else if (Array.isArray(cellValue)) {
+              cellValue = cellValue.map(v => {
+                if (typeof v === "object" && v !== null && "text" in v) {
+                  return v.text
+                }
+                return String(v)
+              }).join("")
+            }
+            
+            // Convertir a string solo si no es un número
+            if (typeof cellValue !== "number" && typeof cellValue !== "string") {
+              cellValue = String(cellValue)
+            }
+            
+            cellValues[cellAddress] = cellValue
           }
-          
-          // Convertir a string solo si no es un número
-          if (typeof cellValue !== "number" && typeof cellValue !== "string") {
-            cellValue = String(cellValue)
-          }
-          
-          cellValues[cellAddress] = cellValue
         }
+        // Si está en un merge pero no es la inicial, NO guardar el valor (solo estilos)
 
         if (Object.keys(style).length > 0) {
           cellStyles[cellAddress] = style
@@ -261,4 +294,5 @@ export async function POST(request: NextRequest) {
     )
   }
 }
+
 
