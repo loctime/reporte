@@ -4,6 +4,7 @@ import React, { useRef, useEffect, useMemo, useState } from "react"
 import * as XLSX from "xlsx"
 import { extractExcelStylesWithExcelJS, type ExcelFormatData } from "@/lib/excel-styles-extractor"
 import { ExcelViewer } from "./excel-viewer"
+import { loadColumnConfig } from "@/lib/column-config"
 
 interface ExcelHandsontableViewerProps {
   rawData: any[][]
@@ -18,94 +19,76 @@ interface ExcelHandsontableViewerProps {
 }
 
 /**
- * Visualizador de Excel usando Handsontable
- * Si Handsontable no está instalado, usa ExcelViewer como fallback
+ * Componente interno que SOLO se renderiza cuando Handsontable está completamente listo
  */
-export function ExcelHandsontableViewer({
+function HandsontableRenderer({
   rawData,
   sheet,
   file,
   onCellClick,
-  selectedCells = [],
-  highlightedCells = [],
-  maxRows = 100,
+  selectedCells,
+  highlightedCells,
+  maxRows,
   className,
-  readOnly = true,
-}: ExcelHandsontableViewerProps) {
-  const [hasHandsontable, setHasHandsontable] = useState(false)
+  readOnly,
+  exceljsFormat,
+}: ExcelHandsontableViewerProps & { exceljsFormat: ExcelFormatData | null }) {
   const [HotTableComponent, setHotTableComponent] = useState<any>(null)
   const [HandsontableLib, setHandsontableLib] = useState<any>(null)
   const hotTableRef = useRef<any>(null)
-  const [exceljsFormat, setExceljsFormat] = useState<ExcelFormatData | null>(null)
-  const [isLoadingStyles, setIsLoadingStyles] = useState(false)
+  const [isRefReady, setIsRefReady] = useState(false)
 
-  // Intentar cargar Handsontable dinámicamente solo en el cliente
+  // Cargar Handsontable dinámicamente SOLO cuando este componente se monta
   useEffect(() => {
-    if (typeof window === "undefined") return
+    let isMounted = true
 
     const loadHandsontable = async () => {
       try {
-        // Intentar importar Handsontable
         const [handsontableReact, handsontable] = await Promise.all([
           import("@handsontable/react"),
           import("handsontable"),
         ])
         
-        // Importar CSS
-        await import("handsontable/dist/handsontable.full.css")
+        await import("handsontable/dist/handsontable.full.css" as any)
         
-        setHotTableComponent(handsontableReact.HotTable)
-        setHandsontableLib(handsontable.default || handsontable)
-        setHasHandsontable(true)
+        if (isMounted) {
+          setHotTableComponent(() => handsontableReact.HotTable)
+          setHandsontableLib(() => handsontable.default || handsontable)
+        }
       } catch (error) {
-        // Handsontable no está instalado, usar fallback silenciosamente
-        setHasHandsontable(false)
+        console.error("Error cargando Handsontable:", error)
       }
     }
 
     loadHandsontable()
+
+    return () => {
+      isMounted = false
+    }
   }, [])
 
-  // Cargar estilos con ExcelJS
+  // Verificar que el ref esté listo DESPUÉS del render
   useEffect(() => {
-    if (file) {
-      setIsLoadingStyles(true)
-      extractExcelStylesWithExcelJS(file)
-        .then((format) => {
-          setExceljsFormat(format)
-          setIsLoadingStyles(false)
-        })
-        .catch(() => {
-          setIsLoadingStyles(false)
-          setExceljsFormat(null)
-        })
+    if (HotTableComponent && HandsontableLib) {
+      // Dar tiempo para que React asigne el ref
+      const timer = setTimeout(() => {
+        if (hotTableRef.current) {
+          setIsRefReady(true)
+        } else {
+          setIsRefReady(false)
+        }
+      }, 50)
+      return () => clearTimeout(timer)
     } else {
-      setExceljsFormat(null)
+      setIsRefReady(false)
     }
-  }, [file])
-
-  // Si Handsontable no está disponible, usar ExcelViewer como fallback
-  if (!hasHandsontable || !HotTableComponent || !HandsontableLib) {
-    return (
-      <ExcelViewer
-        rawData={rawData}
-        sheet={sheet}
-        file={file}
-        onCellClick={onCellClick}
-        selectedCells={selectedCells}
-        highlightedCells={highlightedCells}
-        maxRows={maxRows}
-        className={className}
-      />
-    )
-  }
+  }, [HotTableComponent, HandsontableLib])
 
   // Preparar datos para Handsontable
   const hotData = useMemo(() => {
-    const rowsToShow = rawData.slice(0, maxRows)
+    const rowsToShow = rawData.slice(0, maxRows ?? 100)
     const maxCols = Math.max(...rawData.map(row => row.length), 0)
     
-    // Usar valores de ExcelJS si están disponibles
     const data = rowsToShow.map((row, rowIndex) => {
       const newRow: any[] = []
       for (let colIndex = 0; colIndex < maxCols; colIndex++) {
@@ -154,7 +137,7 @@ export function ExcelHandsontableViewer({
     }
 
     return mergedCells
-      .filter(merge => merge.s.r < maxRows)
+      .filter(merge => merge.s.r < (maxRows ?? 100))
       .map(merge => ({
         row: merge.s.r,
         col: merge.s.c,
@@ -171,8 +154,13 @@ export function ExcelHandsontableViewer({
     for (let i = 0; i < maxCols; i++) {
       if (exceljsFormat?.columnWidths[i]) {
         widths.push(exceljsFormat.columnWidths[i])
-      } else if (sheet?.["!cols"]?.[i]?.w) {
-        widths.push(sheet["!cols"][i].w * 7.5)
+      } else if (sheet?.["!cols"]?.[i]) {
+        const colInfo = sheet["!cols"][i] as any
+        if (colInfo?.w) {
+          widths.push(colInfo.w * 7.5)
+        } else {
+          widths.push(80)
+        }
       } else {
         widths.push(80)
       }
@@ -184,13 +172,13 @@ export function ExcelHandsontableViewer({
   // Configurar alturas de fila
   const rowHeights = useMemo(() => {
     const heights: number[] = []
-    const rowsToShow = Math.min(rawData.length, maxRows)
+    const rowsToShow = Math.min(rawData.length, maxRows ?? 100)
     
     for (let i = 0; i < rowsToShow; i++) {
       if (exceljsFormat?.rowHeights[i]) {
         heights.push(exceljsFormat.rowHeights[i])
       } else if (sheet?.["!rows"]?.[i]?.hpt) {
-        heights.push(sheet["!rows"][i].hpt * 1.33)
+        heights.push((sheet["!rows"][i] as any).hpt * 1.33)
       } else {
         heights.push(23)
       }
@@ -213,8 +201,8 @@ export function ExcelHandsontableViewer({
     const cellAddress = `${colLetter}${row + 1}`
     
     const excelCellStyle = exceljsFormat?.cellStyles?.[cellAddress]
-    const isSelected = selectedCells.some(cell => cell.row === row && cell.col === col)
-    const isHighlighted = highlightedCells.some(cell => cell.row === row && cell.col === col)
+    const isSelected = (selectedCells ?? []).some(cell => cell.row === row && cell.col === col)
+    const isHighlighted = (highlightedCells ?? []).some(cell => cell.row === row && cell.col === col)
 
     return {
       renderer: (instance: any, td: HTMLTableCellElement, row: number, col: number, prop: any, value: any) => {
@@ -311,14 +299,134 @@ export function ExcelHandsontableViewer({
     },
   }
 
+  // NO renderizar Handsontable si no está completamente listo
+  if (!HotTableComponent || !HandsontableLib) {
+    return (
+      <div className={className}>
+        <div className="p-4 text-sm text-muted-foreground">
+          Cargando Handsontable...
+        </div>
+      </div>
+    )
+  }
+
+  // Renderizar Handsontable - el ref se asignará después del render
+  // Si el ref no se asigna correctamente, el useEffect lo detectará
+  return (
+    <div className={className}>
+      <HotTableComponent
+        ref={(ref: any) => {
+          hotTableRef.current = ref
+          if (ref && HotTableComponent && HandsontableLib) {
+            setIsRefReady(true)
+          }
+        }}
+        settings={hotSettings}
+      />
+    </div>
+  )
+}
+
+/**
+ * Visualizador de Excel usando Handsontable
+ * Si Handsontable no está instalado o la configuración es inválida, usa ExcelViewer como fallback
+ */
+export function ExcelHandsontableViewer({
+  rawData,
+  sheet,
+  file,
+  onCellClick,
+  selectedCells = [],
+  highlightedCells = [],
+  maxRows = 100,
+  className,
+  readOnly = true,
+}: ExcelHandsontableViewerProps) {
+  const [isMounted, setIsMounted] = useState(false)
+  const [exceljsFormat, setExceljsFormat] = useState<ExcelFormatData | null>(null)
+  const [isLoadingStyles, setIsLoadingStyles] = useState(false)
+
+  // Verificar que el componente esté montado
+  useEffect(() => {
+    setIsMounted(true)
+    return () => setIsMounted(false)
+  }, [])
+
+  // EARLY RETURN #1: Verificar que estamos en el cliente y montado
+  if (typeof window === "undefined" || !isMounted) {
+    return (
+      <div className={className}>
+        <div className="p-4 text-sm text-muted-foreground">
+          Cargando visualizador...
+        </div>
+      </div>
+    )
+  }
+
+  // EARLY RETURN #2: Verificar configuración ANTES de cualquier hook relacionado con Handsontable
+  const config = loadColumnConfig()
+  const hasValidConfig = config?.fechaCell && config?.operacionCell && 
+    typeof config.fechaCell.row === "number" && 
+    typeof config.fechaCell.col === "number" &&
+    typeof config.operacionCell.row === "number" && 
+    typeof config.operacionCell.col === "number"
+
+  if (!hasValidConfig) {
+    return (
+      <div className={className}>
+        <div className="p-4 text-sm text-destructive bg-destructive/10 rounded-md border border-destructive/20">
+          <p className="font-semibold mb-1">Error de configuración</p>
+          <p>La configuración no incluye las celdas de fecha u operación. Por favor, completa la configuración.</p>
+        </div>
+        <ExcelViewer
+          rawData={rawData}
+          sheet={sheet}
+          file={file}
+          onCellClick={onCellClick}
+          selectedCells={selectedCells}
+          highlightedCells={highlightedCells}
+          maxRows={maxRows}
+          className={className}
+        />
+      </div>
+    )
+  }
+
+  // Cargar estilos con ExcelJS (esto no depende de Handsontable)
+  useEffect(() => {
+    if (file) {
+      setIsLoadingStyles(true)
+      extractExcelStylesWithExcelJS(file)
+        .then((format) => {
+          setExceljsFormat(format)
+          setIsLoadingStyles(false)
+        })
+        .catch(() => {
+          setIsLoadingStyles(false)
+          setExceljsFormat(null)
+        })
+    } else {
+      setExceljsFormat(null)
+    }
+  }, [file])
+
+  // Solo renderizar el componente de Handsontable si todas las condiciones se cumplen
   return (
     <div className={className}>
       {isLoadingStyles && (
         <div className="text-sm text-muted-foreground mb-2">Cargando estilos...</div>
       )}
-      <HotTableComponent
-        ref={hotTableRef}
-        settings={hotSettings}
+      <HandsontableRenderer
+        rawData={rawData}
+        sheet={sheet}
+        file={file}
+        onCellClick={onCellClick}
+        selectedCells={selectedCells}
+        highlightedCells={highlightedCells}
+        maxRows={maxRows}
+        className={undefined}
+        readOnly={readOnly}
+        exceljsFormat={exceljsFormat}
       />
     </div>
   )
