@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useState, type ReactNode } from "react"
 import type { AuditFile, AuditItem, AuditStats } from "./types"
-import { parseExcelFile } from "./excel-parser"
 
 interface AuditFileWithBlob extends AuditFile {
   fileBlob?: Blob
@@ -166,6 +165,9 @@ export function AuditProvider({ children }: { children: ReactNode }) {
     const errors: Array<{ fileName: string; error: string }> = []
     const newFiles: AuditFile[] = []
     const newBlobs = new Map<string, Blob>()
+
+    // Importación dinámica del parser solo cuando se necesita (solo en cliente)
+    const { parseExcelFile } = await import("./excel-parser")
 
     // Re-parsear cada archivo existente
     for (const file of auditFiles) {

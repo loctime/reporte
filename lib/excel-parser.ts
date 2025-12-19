@@ -1,3 +1,5 @@
+"use client"
+
 import * as XLSX from "xlsx"
 import type { AuditFile, AuditItem, AuditStatus } from "./types"
 import { loadColumnConfig, type ColumnConfig } from "./column-config"

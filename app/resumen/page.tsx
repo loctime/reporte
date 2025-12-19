@@ -107,10 +107,10 @@ export default function ResumenPage() {
   }
 
   // Datos para la sección de operación
-  const operacionActual = selectedOperacion || operaciones[0]
-  const operacionStats = stats.porOperacion[operacionActual]
-  const auditoriasOperacion = auditFiles.filter((f) => f.operacion === operacionActual)
-  const itemsOperacion = getAllItems().filter((i) => i.operacion === operacionActual)
+  const operacionActual = selectedOperacion || (operaciones.length > 0 ? operaciones[0] : "")
+  const operacionStats = operacionActual ? stats.porOperacion[operacionActual] : null
+  const auditoriasOperacion = operacionActual ? auditFiles.filter((f) => f.operacion === operacionActual) : []
+  const itemsOperacion = operacionActual ? getAllItems().filter((i) => i.operacion === operacionActual) : []
 
   const cumpleOperacion = itemsOperacion.filter((i) => i.estado === "Cumple").length
   const cumpleParcialOperacion = itemsOperacion.filter((i) => i.estado === "Cumple parcialmente").length
@@ -168,10 +168,10 @@ export default function ResumenPage() {
     .slice(0, 10)
 
   // Datos para la sección de auditor
-  const auditorActual = selectedAuditor || auditores[0]
-  const auditorStats = stats.porAuditor[auditorActual]
-  const auditoriasAuditor = auditFiles.filter((f) => f.auditor === auditorActual)
-  const itemsAuditor = getAllItems().filter((i) => i.auditor === auditorActual)
+  const auditorActual = selectedAuditor || (auditores.length > 0 ? auditores[0] : "")
+  const auditorStats = auditorActual ? stats.porAuditor[auditorActual] : null
+  const auditoriasAuditor = auditorActual ? auditFiles.filter((f) => f.auditor === auditorActual) : []
+  const itemsAuditor = auditorActual ? getAllItems().filter((i) => i.auditor === auditorActual) : []
 
   const cumpleAuditor = itemsAuditor.filter((i) => i.estado === "Cumple").length
   const cumpleParcialAuditor = itemsAuditor.filter((i) => i.estado === "Cumple parcialmente").length
@@ -233,13 +233,13 @@ export default function ResumenPage() {
                   <StatsCard
                     title="Items Cumplidos"
                     value={stats.cumple}
-                    description={`${Math.round((stats.cumple / stats.totalItems) * 100)}% del total`}
+                    description={`${stats.totalItems > 0 ? Math.round((stats.cumple / stats.totalItems) * 100) : 0}% del total`}
                     icon={CheckCircle2}
                   />
                   <StatsCard
                     title="Incumplimientos"
                     value={stats.noCumple}
-                    description={`${Math.round((stats.noCumple / stats.totalItems) * 100)}% del total`}
+                    description={`${stats.totalItems > 0 ? Math.round((stats.noCumple / stats.totalItems) * 100) : 0}% del total`}
                     icon={AlertTriangle}
                   />
                 </div>
@@ -262,53 +262,69 @@ export default function ResumenPage() {
 
             {/* TAB: Por Operación */}
             <TabsContent value="operacion" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Seleccionar Operación</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Select value={operacionActual} onValueChange={setSelectedOperacion}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Seleccione una operación" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {operaciones.map((op) => (
-                        <SelectItem key={op} value={op}>
-                          {op}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </CardContent>
-              </Card>
+              {operaciones.length > 0 ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Seleccionar Operación</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Select value={operacionActual} onValueChange={setSelectedOperacion}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Seleccione una operación" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {operaciones.map((op) => (
+                          <SelectItem key={op} value={op}>
+                            {op}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-muted-foreground text-center">No hay operaciones disponibles</p>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Stats de la operación */}
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-                <StatsCard
-                  title="Auditorías"
-                  value={operacionStats.auditorias}
-                  description="Total realizadas"
-                  icon={Calendar}
-                />
-                <StatsCard
-                  title="Cumplimiento"
-                  value={`${Math.round(operacionStats.cumplimiento)}%`}
-                  description="Promedio general"
-                  icon={TrendingUp}
-                />
-                <StatsCard
-                  title="Items Cumplidos"
-                  value={cumpleOperacion}
-                  description={`${itemsOperacion.length > 0 ? Math.round((cumpleOperacion / itemsOperacion.length) * 100) : 0}% del total`}
-                  icon={CheckCircle2}
-                />
-                <StatsCard
-                  title="Incumplimientos"
-                  value={noCumpleOperacion}
-                  description={`${itemsOperacion.length > 0 ? Math.round((noCumpleOperacion / itemsOperacion.length) * 100) : 0}% del total`}
-                  icon={AlertTriangle}
-                />
-              </div>
+              {operacionStats ? (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                  <StatsCard
+                    title="Auditorías"
+                    value={operacionStats.auditorias}
+                    description="Total realizadas"
+                    icon={Calendar}
+                  />
+                  <StatsCard
+                    title="Cumplimiento"
+                    value={`${Math.round(operacionStats.cumplimiento)}%`}
+                    description="Promedio general"
+                    icon={TrendingUp}
+                  />
+                  <StatsCard
+                    title="Items Cumplidos"
+                    value={cumpleOperacion}
+                    description={`${itemsOperacion.length > 0 ? Math.round((cumpleOperacion / itemsOperacion.length) * 100) : 0}% del total`}
+                    icon={CheckCircle2}
+                  />
+                  <StatsCard
+                    title="Incumplimientos"
+                    value={noCumpleOperacion}
+                    description={`${itemsOperacion.length > 0 ? Math.round((noCumpleOperacion / itemsOperacion.length) * 100) : 0}% del total`}
+                    icon={AlertTriangle}
+                  />
+                </div>
+              ) : (
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-muted-foreground text-center">No hay operaciones disponibles</p>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Cumplimiento por Categoría */}
               <Card>
@@ -439,53 +455,69 @@ export default function ResumenPage() {
 
             {/* TAB: Por Auditor */}
             <TabsContent value="auditor" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Seleccionar Auditor</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Select value={auditorActual} onValueChange={setSelectedAuditor}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Seleccione un auditor" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {auditores.map((auditor) => (
-                        <SelectItem key={auditor} value={auditor}>
-                          {auditor}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </CardContent>
-              </Card>
+              {auditores.length > 0 ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Seleccionar Auditor</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Select value={auditorActual} onValueChange={setSelectedAuditor}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Seleccione un auditor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {auditores.map((auditor) => (
+                          <SelectItem key={auditor} value={auditor}>
+                            {auditor}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-muted-foreground text-center">No hay auditores disponibles</p>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Stats del auditor */}
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-                <StatsCard
-                  title="Auditorías"
-                  value={auditorStats.auditorias}
-                  description="Total realizadas"
-                  icon={Calendar}
-                />
-                <StatsCard
-                  title="Porcentaje de Cumplimiento"
-                  value={`${Math.round(auditorStats.cumplimiento)}%`}
-                  description="Promedio de todas sus auditorías"
-                  icon={TrendingUp}
-                />
-                <StatsCard
-                  title="Incumplimientos Detectados"
-                  value={noCumpleAuditor}
-                  description="Items con no cumple"
-                  icon={AlertTriangle}
-                />
-                <StatsCard
-                  title="Operaciones"
-                  value={[...new Set(auditoriasAuditor.map((a) => a.operacion))].length}
-                  description="Diferentes auditadas"
-                  icon={Building2}
-                />
-              </div>
+              {auditorStats ? (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                  <StatsCard
+                    title="Auditorías"
+                    value={auditorStats.auditorias}
+                    description="Total realizadas"
+                    icon={Calendar}
+                  />
+                  <StatsCard
+                    title="Porcentaje de Cumplimiento"
+                    value={`${Math.round(auditorStats.cumplimiento)}%`}
+                    description="Promedio de todas sus auditorías"
+                    icon={TrendingUp}
+                  />
+                  <StatsCard
+                    title="Incumplimientos Detectados"
+                    value={noCumpleAuditor}
+                    description="Items con no cumple"
+                    icon={AlertTriangle}
+                  />
+                  <StatsCard
+                    title="Operaciones"
+                    value={[...new Set(auditoriasAuditor.map((a) => a.operacion))].length}
+                    description="Diferentes auditadas"
+                    icon={Building2}
+                  />
+                </div>
+              ) : (
+                <Card>
+                  <CardContent className="pt-6">
+                    <p className="text-muted-foreground text-center">No hay auditores disponibles</p>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Distribución de Hallazgos */}
               <Card>
